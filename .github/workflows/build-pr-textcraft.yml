@@ -27,9 +27,8 @@ jobs:
             -KeyExportPolicy Exportable `
             -KeySpec Signature
           "TEXTCRAFT_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Created temporary certificate $($cert.Thumbprint)"
 
-      - name: Configure CI signing, version and RAG diagnostics
+      - name: Configure version and verified RAG indexing
         shell: pwsh
         run: |
           $project = 'TextCraft.csproj'
@@ -42,70 +41,134 @@ jobs:
           $xml = [regex]::Replace(
             $xml,
             '<ApplicationVersion>[^<]*</ApplicationVersion>',
-            '<ApplicationVersion>1.0.10.0</ApplicationVersion>'
+            '<ApplicationVersion>1.0.11.0</ApplicationVersion>'
           )
           Set-Content $project $xml -Encoding UTF8
 
           $assemblyInfo = 'Properties/AssemblyInfo.cs'
           $assembly = Get-Content $assemblyInfo -Raw
-          $assembly = $assembly.Replace('AssemblyVersion("1.0.8.0")', 'AssemblyVersion("1.0.10.0")')
-          $assembly = $assembly.Replace('AssemblyFileVersion("1.0.8.0")', 'AssemblyFileVersion("1.0.10.0")')
+          $assembly = [regex]::Replace($assembly, 'AssemblyVersion\("[^"]+"\)', 'AssemblyVersion("1.0.11.0")')
+          $assembly = [regex]::Replace($assembly, 'AssemblyFileVersion\("[^"]+"\)', 'AssemblyFileVersion("1.0.11.0")')
           Set-Content $assemblyInfo $assembly -Encoding UTF8
 
-          # ci/build-patched.ps1 first applies the scientific-PDF and multi-document
-          # patch to RAGControl.cs. Inject this block immediately after that source patch,
-          # while $c contains the final C# source but before it is written and compiled.
           $path = './ci/build-patched.ps1'
           $script = Get-Content $path -Raw
-          $marker = '$c = $c.Substring(0, $start) + $replacement + $c.Substring($end)'
-          if (-not $script.Contains($marker)) { throw 'Could not locate final RAG source patch marker' }
 
-          $injection = @'
-          # Final RAG diagnostics patch. At this point $c is patched RAGControl.cs.
-          $diagFieldOld = '        private ConcurrentDictionary<string, long> _activeIndexVersions = new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);'
-          $diagFieldNew = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ICAgICAgICBwcml2YXRlIENvbmN1cnJlbnREaWN0aW9uYXJ5PHN0cmluZywgTGlzdDxzdHJpbmc+PiBfZmlsZUNodW5rcyA9IG5ldyBDb25jdXJyZW50RGljdGlvbmFyeTxzdHJpbmcsIExpc3Q8c3RyaW5nPj4oU3RyaW5nQ29tcGFyZXIuT3JkaW5hbElnbm9yZUNhc2UpOw=='))
-          if (-not $c.Contains($diagFieldOld)) { throw 'Could not locate RAG index-version field' }
-          $c = $c.Replace($diagFieldOld, $diagFieldOld + "`r`n" + $diagFieldNew)
-
-          $c = $c.Replace(
-              '            _activeIndexVersions.Clear();',
-              "            _activeIndexVersions.Clear();`r`n            _fileChunks.Clear();"
+          $script = $script.Replace(
+            '            IEnumerable<string> fileContent;',
+            '            List<string> fileContent;'
+          )
+          $script = $script.Replace(
+            '                fileContent = await ReadPdfFileAsync(filePath, CHUNK_LEN);',
+            @'
+                fileContent = (await ReadPdfFileAsync(filePath, CHUNK_LEN)).ToList();
+                if (fileContent.Count == 0)
+                {
+                    MarkFileStatus(filePath, $"[NO TEXT] {Path.GetFileName(filePath)} (0 chunks)");
+                    _activeIndexVersions.TryRemove(filePath, out _);
+                    return;
+                }
+                MarkFileStatus(filePath, $"[INDEXING] {Path.GetFileName(filePath)} ({fileContent.Count} chunks)");
+'@
+          )
+          $script = $script.Replace(
+            '            var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, Path.GetTempPath());',
+            @'
+            var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, Path.GetTempPath());
+            if (!stagedDb.CreateIndex(filePath))
+                throw new InvalidOperationException($"Could not create vector index for {filePath}");
+'@
+          )
+          $script = $script.Replace(
+            '                    int fileContentCount = fileContent.Count();',
+            '                    int fileContentCount = fileContent.Count;'
+          )
+          $script = $script.Replace(
+            '                        stagedDb.IndexDocument(fileContent.ElementAt(i));',
+            @'
+                        if (!stagedDb.IndexDocument(filePath, fileContent[i]))
+                            throw new InvalidOperationException($"Vector indexing failed for {Path.GetFileName(filePath)}, chunk {i + 1}/{fileContentCount}");
+'@
           )
 
-          $diagIndexStart = $c.IndexOf('        private async Task IndexDocumentAsync(string filePath)')
-          $diagIndexEnd = $c.IndexOf('        private void RemoveFileEntry(string filePath)', $diagIndexStart)
-          if ($diagIndexStart -lt 0 -or $diagIndexEnd -lt 0) { throw 'Could not locate patched IndexDocumentAsync' }
-          $diagIndexReplacement = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ICAgICAgICBwcml2YXRlIGFzeW5jIFRhc2sgSW5kZXhEb2N1bWVudEFzeW5jKHN0cmluZyBmaWxlUGF0aCkKICAgICAgICB7CiAgICAgICAgICAgIGxvbmcgaW5kZXhWZXJzaW9uID0gSW50ZXJsb2NrZWQuSW5jcmVtZW50KHJlZiBfbmV4dEluZGV4VmVyc2lvbik7CiAgICAgICAgICAgIF9hY3RpdmVJbmRleFZlcnNpb25zW2ZpbGVQYXRoXSA9IGluZGV4VmVyc2lvbjsKCiAgICAgICAgICAgIExpc3Q8c3RyaW5nPiBmaWxlQ29udGVudDsKICAgICAgICAgICAgdHJ5CiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgIGZpbGVDb250ZW50ID0gKGF3YWl0IFJlYWRQZGZGaWxlQXN5bmMoZmlsZVBhdGgsIENIVU5LX0xFTikpLlRvTGlzdCgpOwogICAgICAgICAgICAgICAgaWYgKGZpbGVDb250ZW50LkNvdW50ID09IDApCiAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgTWFya0ZpbGVTdGF0dXMoZmlsZVBhdGgsICQiW05PIFRFWFRdIHtQYXRoLkdldEZpbGVOYW1lKGZpbGVQYXRoKX0gKDAgY2h1bmtzKSIpOwogICAgICAgICAgICAgICAgICAgIF9hY3RpdmVJbmRleFZlcnNpb25zLlRyeVJlbW92ZShmaWxlUGF0aCwgb3V0IF8pOwogICAgICAgICAgICAgICAgICAgIHJldHVybjsKICAgICAgICAgICAgICAgIH0KCiAgICAgICAgICAgICAgICBNYXJrRmlsZVN0YXR1cyhmaWxlUGF0aCwgJCJbSU5ERVhJTkddIHtQYXRoLkdldEZpbGVOYW1lKGZpbGVQYXRoKX0gKHtmaWxlQ29udGVudC5Db3VudH0gY2h1bmtzKSIpOwogICAgICAgICAgICB9CiAgICAgICAgICAgIGNhdGNoCiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgIF9hY3RpdmVJbmRleFZlcnNpb25zLlRyeVJlbW92ZShmaWxlUGF0aCwgb3V0IF8pOwogICAgICAgICAgICAgICAgUmVtb3ZlRmlsZUVudHJ5KGZpbGVQYXRoKTsKICAgICAgICAgICAgICAgIHRocm93OwogICAgICAgICAgICB9CgogICAgICAgICAgICAvLyBCdWlsZCBhIGNvbXBsZXRlIHByaXZhdGUgZGF0YWJhc2UgZmlyc3QuIEl0IGlzIHB1Ymxpc2hlZCBhdG9taWNhbGx5IG9ubHkKICAgICAgICAgICAgLy8gYWZ0ZXIgYWxsIGNodW5rcyBoYXZlIGVtYmVkZGluZ3MsIHNvIEdlbmVyYXRlIGNhbiBzYWZlbHkga2VlcCB1c2luZyB0aGUKICAgICAgICAgICAgLy8gYWxyZWFkeS1pbmRleGVkIFBERnMgd2hpbGUgYSBuZXdseSBhZGRlZCBQREYgaXMgc3RpbGwgcHJvY2Vzc2luZy4KICAgICAgICAgICAgdmFyIHN0YWdlZERiID0gbmV3IEh5cGVyVmVjdG9yREIuSHlwZXJWZWN0b3JEQihUaGlzQWRkSW4uRW1iZWRkZXIsIFBhdGguR2V0VGVtcFBhdGgoKSk7CgogICAgICAgICAgICB0cnkKICAgICAgICAgICAgewogICAgICAgICAgICAgICAgYXdhaXQgVGFzay5SdW4oKCkgPT4KICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgICBpbnQgZmlsZUNvbnRlbnRDb3VudCA9IGZpbGVDb250ZW50LkNvdW50OwogICAgICAgICAgICAgICAgICAgIGludCBwcm9ncmVzc0JhckluY3JlbWVudCA9IE1hdGguTWF4KDEsIChpbnQpTWF0aC5DZWlsaW5nKGZpbGVDb250ZW50Q291bnQgKiAwLjEpKTsKCiAgICAgICAgICAgICAgICAgICAgZm9yIChpbnQgaSA9IDA7IGkgPCBmaWxlQ29udGVudENvdW50OyBpKyspCiAgICAgICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAgICAgICAvLyBBIGZpbGUgY2FuIGJlIHJlbW92ZWQgd2hpbGUgZW1iZWRkaW5ncyBhcmUgYmVpbmcgZ2VuZXJhdGVkLgogICAgICAgICAgICAgICAgICAgICAgICBsb25nIGN1cnJlbnRWZXJzaW9uRHVyaW5nSW5kZXg7CiAgICAgICAgICAgICAgICAgICAgICAgIGlmICghX2FjdGl2ZUluZGV4VmVyc2lvbnMuVHJ5R2V0VmFsdWUoZmlsZVBhdGgsIG91dCBjdXJyZW50VmVyc2lvbkR1cmluZ0luZGV4KSB8fCBjdXJyZW50VmVyc2lvbkR1cmluZ0luZGV4ICE9IGluZGV4VmVyc2lvbikKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHJldHVybjsKCiAgICAgICAgICAgICAgICAgICAgICAgIHN0YWdlZERiLkluZGV4RG9jdW1lbnQoZmlsZUNvbnRlbnRbaV0pOwogICAgICAgICAgICAgICAgICAgICAgICBpZiAoaSAlIHByb2dyZXNzQmFySW5jcmVtZW50ID09IDApCiAgICAgICAgICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHRoaXMuSW52b2tlKChNZXRob2RJbnZva2VyKWRlbGVnYXRlCiAgICAgICAgICAgICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgVXBkYXRlUHJvZ3Jlc3NCYXIoKGZsb2F0KXByb2dyZXNzQmFySW5jcmVtZW50IC8gTWF0aC5NYXgoMSwgZmlsZUNvbnRlbnRDb3VudCkpOwogICAgICAgICAgICAgICAgICAgICAgICAgICAgfSk7CiAgICAgICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICB9KTsKICAgICAgICAgICAgfQogICAgICAgICAgICBjYXRjaAogICAgICAgICAgICB7CiAgICAgICAgICAgICAgICBsb25nIGlnbm9yZWRWZXJzaW9uOwogICAgICAgICAgICAgICAgX2FjdGl2ZUluZGV4VmVyc2lvbnMuVHJ5UmVtb3ZlKGZpbGVQYXRoLCBvdXQgaWdub3JlZFZlcnNpb24pOwogICAgICAgICAgICAgICAgUmVtb3ZlRmlsZUVudHJ5KGZpbGVQYXRoKTsKICAgICAgICAgICAgICAgIHRocm93OwogICAgICAgICAgICB9CgogICAgICAgICAgICBsb25nIGN1cnJlbnRWZXJzaW9uOwogICAgICAgICAgICBpZiAoX2FjdGl2ZUluZGV4VmVyc2lvbnMuVHJ5R2V0VmFsdWUoZmlsZVBhdGgsIG91dCBjdXJyZW50VmVyc2lvbikgJiYgY3VycmVudFZlcnNpb24gPT0gaW5kZXhWZXJzaW9uKQogICAgICAgICAgICB7CiAgICAgICAgICAgICAgICBfZmlsZURhdGFiYXNlc1tmaWxlUGF0aF0gPSBzdGFnZWREYjsKICAgICAgICAgICAgICAgIF9maWxlQ2h1bmtzW2ZpbGVQYXRoXSA9IGZpbGVDb250ZW50OwogICAgICAgICAgICAgICAgTWFya0ZpbGVTdGF0dXMoZmlsZVBhdGgsICQiW09LXSB7UGF0aC5HZXRGaWxlTmFtZShmaWxlUGF0aCl9ICh7ZmlsZUNvbnRlbnQuQ291bnR9IGNodW5rcykiKTsKICAgICAgICAgICAgfQogICAgICAgIH0KCiAgICAgICAgcHJpdmF0ZSB2b2lkIE1hcmtGaWxlU3RhdHVzKHN0cmluZyBmaWxlUGF0aCwgc3RyaW5nIGxhYmVsKQogICAgICAgIHsKICAgICAgICAgICAgQWN0aW9uIHVwZGF0ZSA9ICgpID0+CiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgIGZvciAoaW50IGkgPSAwOyBpIDwgX2ZpbGVMaXN0LkNvdW50OyBpKyspCiAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgaWYgKHN0cmluZy5FcXVhbHMoX2ZpbGVMaXN0W2ldLlZhbHVlLCBmaWxlUGF0aCwgU3RyaW5nQ29tcGFyaXNvbi5PcmRpbmFsSWdub3JlQ2FzZSkpCiAgICAgICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAgICAgICBfZmlsZUxpc3RbaV0gPSBuZXcgS2V5VmFsdWVQYWlyPHN0cmluZywgc3RyaW5nPihsYWJlbCwgZmlsZVBhdGgpOwogICAgICAgICAgICAgICAgICAgICAgICBicmVhazsKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH07CgogICAgICAgICAgICBpZiAodGhpcy5JbnZva2VSZXF1aXJlZCkKICAgICAgICAgICAgICAgIHRoaXMuSW52b2tlKChNZXRob2RJbnZva2VyKWRlbGVnYXRlIHsgdXBkYXRlKCk7IH0pOwogICAgICAgICAgICBlbHNlCiAgICAgICAgICAgICAgICB1cGRhdGUoKTsKICAgICAgICB9Cgo='))
-          $c = $c.Substring(0, $diagIndexStart) + $diagIndexReplacement + $c.Substring($diagIndexEnd)
+          $oldPublish = @'
+            long currentVersion;
+            if (_activeIndexVersions.TryGetValue(filePath, out currentVersion) && currentVersion == indexVersion)
+                _fileDatabases[filePath] = stagedDb;
+        }
 
-          $diagDeleteOld = "        private bool DeleteDocument(string filePath)`r`n        {`r`n            HyperVectorDB.HyperVectorDB removed;`r`n            return _fileDatabases.TryRemove(filePath, out removed);`r`n        }"
-          if (-not $c.Contains($diagDeleteOld)) {
-              $diagDeleteOld = $diagDeleteOld.Replace("`r`n", "`n")
-          }
-          $diagDeleteNew = $diagDeleteOld.Replace('            return _fileDatabases.TryRemove(filePath, out removed);', "            _fileChunks.TryRemove(filePath, out _);`r`n            return _fileDatabases.TryRemove(filePath, out removed);")
-          if ($diagDeleteOld.Contains("`n") -and -not $diagDeleteOld.Contains("`r`n")) { $diagDeleteNew = $diagDeleteNew.Replace("`r`n", "`n") }
-          if (-not $c.Contains($diagDeleteOld)) { throw 'Could not locate DeleteDocument in patched RAG source' }
-          $c = $c.Replace($diagDeleteOld, $diagDeleteNew)
+        private void RemoveFileEntry(string filePath)
+'@
+          $newPublish = @'
+            long currentVersion;
+            if (_activeIndexVersions.TryGetValue(filePath, out currentVersion) && currentVersion == indexVersion)
+            {
+                _fileDatabases[filePath] = stagedDb;
+                MarkFileStatus(filePath, $"[OK] {Path.GetFileName(filePath)} ({fileContent.Count} chunks)");
+            }
+        }
 
-          $diagRagStart = $c.IndexOf('        public string GetRAGContext(string query, int maxTokens)')
-          $diagRagEnd = $c.IndexOf('        // UTILS', $diagRagStart)
-          if ($diagRagStart -lt 0 -or $diagRagEnd -lt 0) { throw 'Could not locate patched GetRAGContext' }
-          $diagRagReplacement = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ICAgICAgICBwdWJsaWMgc3RyaW5nIEdldFJBR0NvbnRleHQoc3RyaW5nIHF1ZXJ5LCBpbnQgbWF4VG9rZW5zKQogICAgICAgIHsKICAgICAgICAgICAgaWYgKG1heFRva2VucyA8PSAwKQogICAgICAgICAgICAgICAgcmV0dXJuIHN0cmluZy5FbXB0eTsKCiAgICAgICAgICAgIHZhciBkYXRhYmFzZXMgPSBfZmlsZURhdGFiYXNlcy5Ub0FycmF5KCk7CiAgICAgICAgICAgIGlmIChkYXRhYmFzZXMuTGVuZ3RoID09IDApCiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgIGlmIChfZmlsZUxpc3QgIT0gbnVsbCAmJiBfZmlsZUxpc3QuQ291bnQgPiAwKQogICAgICAgICAgICAgICAgICAgIHJldHVybiAiW1JBRyBTVEFUVVM6IFBERiBmaWxlcyBhcmUgYXR0YWNoZWQsIGJ1dCBub25lIGhhcyBjb21wbGV0ZWQgaW5kZXhpbmcuIFdhaXQgZm9yIFtPS10gaW4gdGhlIFJBRyBsaXN0LiBbTk8gVEVYVF0gbWVhbnMgdGhlIFBERiBjb250YWlucyBubyBleHRyYWN0YWJsZSB0ZXh0Ll0iOwogICAgICAgICAgICAgICAgcmV0dXJuIHN0cmluZy5FbXB0eTsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgLy8gUmVzZXJ2ZSBhbiBlcXVhbCB0b2tlbiBidWRnZXQgZm9yIGV2ZXJ5IGZ1bGx5IGluZGV4ZWQgUERGLiBUaGlzIHByZXZlbnRzIGEKICAgICAgICAgICAgLy8gaGlnaGx5IHNpbWlsYXIgZmlyc3QgcGFwZXIgZnJvbSBjb25zdW1pbmcgdGhlIGNvbXBsZXRlIFJBRyBjb250ZXh0IGFuZCBtYWtlcwogICAgICAgICAgICAvLyBtdWx0aS1wYXBlciBjb21wYXJpc29uIHByZWRpY3RhYmxlLgogICAgICAgICAgICBpbnQgcGVyRmlsZVRva2VuQnVkZ2V0ID0gTWF0aC5NYXgoMSwgbWF4VG9rZW5zIC8gZGF0YWJhc2VzLkxlbmd0aCk7CiAgICAgICAgICAgIFN0cmluZ0J1aWxkZXIgcmFnQ29udGV4dCA9IG5ldyBTdHJpbmdCdWlsZGVyKCk7CiAgICAgICAgICAgIHJhZ0NvbnRleHQuQXBwZW5kTGluZSgiW1JBRyBTT1VSQ0VTIFJFQURZXSIpOwoKICAgICAgICAgICAgZm9yZWFjaCAodmFyIHNvdXJjZSBpbiBkYXRhYmFzZXMuT3JkZXJCeShpdGVtID0+IGl0ZW0uS2V5LCBTdHJpbmdDb21wYXJlci5PcmRpbmFsSWdub3JlQ2FzZSkpCiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgIExpc3Q8c3RyaW5nPiBzb3VyY2VDaHVua3M7CiAgICAgICAgICAgICAgICBpbnQgY2h1bmtDb3VudCA9IF9maWxlQ2h1bmtzLlRyeUdldFZhbHVlKHNvdXJjZS5LZXksIG91dCBzb3VyY2VDaHVua3MpID8gc291cmNlQ2h1bmtzLkNvdW50IDogMDsKICAgICAgICAgICAgICAgIHJhZ0NvbnRleHQuQXBwZW5kTGluZSgkIi0ge1BhdGguR2V0RmlsZU5hbWUoc291cmNlLktleSl9ICh7Y2h1bmtDb3VudH0gY2h1bmtzKSIpOwogICAgICAgICAgICB9CiAgICAgICAgICAgIHJhZ0NvbnRleHQuQXBwZW5kTGluZSgpOwoKICAgICAgICAgICAgZm9yZWFjaCAodmFyIGVudHJ5IGluIGRhdGFiYXNlcy5PcmRlckJ5KGl0ZW0gPT4gaXRlbS5LZXksIFN0cmluZ0NvbXBhcmVyLk9yZGluYWxJZ25vcmVDYXNlKSkKICAgICAgICAgICAgewogICAgICAgICAgICAgICAgdmFyIHJlc3VsdCA9IGVudHJ5LlZhbHVlLlF1ZXJ5Q29zaW5lU2ltaWxhcml0eShxdWVyeSwgMTApOwogICAgICAgICAgICAgICAgaWYgKHJlc3VsdC5Eb2N1bWVudHMuQ291bnQgPT0gMCkKICAgICAgICAgICAgICAgICAgICBjb250aW51ZTsKCiAgICAgICAgICAgICAgICBTdHJpbmdCdWlsZGVyIGZpbGVDb250ZXh0ID0gbmV3IFN0cmluZ0J1aWxkZXIoKTsKICAgICAgICAgICAgICAgIGZvcmVhY2ggKHZhciBkb2N1bWVudCBpbiByZXN1bHQuRG9jdW1lbnRzKQogICAgICAgICAgICAgICAgICAgIGZpbGVDb250ZXh0LkFwcGVuZExpbmUoZG9jdW1lbnQuRG9jdW1lbnRTdHJpbmcpOwoKICAgICAgICAgICAgICAgIHN0cmluZyBib3VuZGVkRmlsZUNvbnRleHQgPSBDb21tb25VdGlscy5TdWJzdHJpbmdUb2tlbnMoZmlsZUNvbnRleHQuVG9TdHJpbmcoKSwgcGVyRmlsZVRva2VuQnVkZ2V0KTsKICAgICAgICAgICAgICAgIGlmICghc3RyaW5nLklzTnVsbE9yV2hpdGVTcGFjZShib3VuZGVkRmlsZUNvbnRleHQpKQogICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAgIHJhZ0NvbnRleHQuQXBwZW5kTGluZShib3VuZGVkRmlsZUNvbnRleHQpOwogICAgICAgICAgICAgICAgICAgIHJhZ0NvbnRleHQuQXBwZW5kTGluZSgpOwogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CgogICAgICAgICAgICByZXR1cm4gQ29tbW9uVXRpbHMuU3Vic3RyaW5nVG9rZW5zKHJhZ0NvbnRleHQuVG9TdHJpbmcoKSwgbWF4VG9rZW5zKTsKICAgICAgICB9Cgo='))
-          $c = $c.Substring(0, $diagRagStart) + $diagRagReplacement + $c.Substring($diagRagEnd)
-          '@
+        private void MarkFileStatus(string filePath, string label)
+        {
+            Action update = () =>
+            {
+                for (int i = 0; i < _fileList.Count; i++)
+                {
+                    if (string.Equals(_fileList[i].Value, filePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _fileList[i] = new KeyValuePair<string, string>(label, filePath);
+                        break;
+                    }
+                }
+            };
 
-          $script = $script.Replace($marker, $marker + "`r`n" + $injection)
+            if (this.InvokeRequired)
+                this.Invoke((MethodInvoker)delegate { update(); });
+            else
+                update();
+        }
 
-          # A failed optional MSI build must not suppress the successfully built VSTO binaries.
+        private void RemoveFileEntry(string filePath)
+'@
+          if (-not $script.Contains($oldPublish)) { throw 'Could not locate RAG publish block in build script' }
+          $script = $script.Replace($oldPublish, $newPublish)
+
+          $oldQueryBuilder = '            StringBuilder ragContext = new StringBuilder();'
+          $newQueryBuilder = @'
+            StringBuilder ragContext = new StringBuilder();
+            ragContext.AppendLine("[RAG SOURCES READY]");
+            foreach (var source in databases.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+                ragContext.AppendLine($"- {Path.GetFileName(source.Key)}");
+            ragContext.AppendLine();
+'@
+          if (-not $script.Contains($oldQueryBuilder)) { throw 'Could not locate RAG context builder in build script' }
+          $script = $script.Replace($oldQueryBuilder, $newQueryBuilder.TrimEnd())
+
           $script = $script.Replace(
             "Write-Host 'Build preparation complete.'",
             "Write-Host 'Build preparation complete.'`r`nexit 0"
           )
           Set-Content $path $script -Encoding UTF8
 
-      - name: Build patched TextCraft
+      - name: Build TextCraft
         shell: pwsh
         run: ./ci/build-patched.ps1
+
+      - name: Verify vector index fix
+        shell: pwsh
+        run: |
+          $source = Get-Content 'artifact\RAGControl.patched.cs' -Raw
+          foreach ($marker in @(
+            'CreateIndex(filePath)',
+            'IndexDocument(filePath, fileContent[i])',
+            '[INDEXING]',
+            '[OK]',
+            '[NO TEXT]',
+            '[RAG SOURCES READY]'
+          )) {
+            if (-not $source.Contains($marker)) { throw "Missing verified RAG marker: $marker" }
+          }
+          Write-Host 'Verified named vector index and checked chunk insertion.'
 
       - name: Package trust certificate and installer
         shell: pwsh
@@ -116,24 +179,13 @@ jobs:
           @'
           $ErrorActionPreference = 'Stop'
           $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-          Write-Host 'TextCraft patched build installer'
-          Write-Host 'This installs the build certificate only for the current Windows user.'
-
           Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
               try { Unblock-File -LiteralPath $_.FullName -ErrorAction Stop } catch { }
           }
-
           $certPath = Join-Path $root 'TextCraft-CI.cer'
-          if (-not (Test-Path $certPath)) { throw "Certificate not found: $certPath" }
-
           Import-Certificate -FilePath $certPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
           Import-Certificate -FilePath $certPath -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
-          Write-Host 'Certificate trusted for current user.'
-
-          $vsto = Join-Path $root 'TextCraft.vsto'
-          if (-not (Test-Path $vsto)) { throw "VSTO manifest not found: $vsto" }
-          Write-Host 'Starting VSTO installer...'
-          Start-Process -FilePath $vsto
+          Start-Process -FilePath (Join-Path $root 'TextCraft.vsto')
           '@ | Set-Content -Path 'artifact\Install-TextCraft.ps1' -Encoding UTF8
 
           @'
@@ -144,34 +196,16 @@ jobs:
           '@ | Set-Content -Path 'artifact\Install-TextCraft.cmd' -Encoding ASCII
 
           @'
-          TextCraft patched scientific-RAG build 1.0.10.0
+          TextCraft patched scientific-RAG build 1.0.11.0
 
-          Installation:
-          1. Close Microsoft Word completely.
-          2. Double-click Install-TextCraft.cmd.
-          3. The script trusts only the included self-signed TextCraft CI certificate for the current Windows user, then starts TextCraft.vsto.
-          4. Re-open Word after installation.
-
-          RAG list states:
-          [INDEXING] = PDF text was extracted and embeddings are still being created.
-          [OK]       = PDF is ready and can be used by Generate.
-          [NO TEXT]  = PdfPig could not extract usable text from that PDF.
-
-          If Windows blocks the downloaded ZIP or extracted files, the installer script removes Mark-of-the-Web from this extracted folder before launching VSTO.
+          [INDEXING] means embeddings are being created.
+          [OK] is shown only after a named HyperVectorDB index exists and every chunk insertion has succeeded.
+          [NO TEXT] means no usable PDF text was extracted.
           '@ | Set-Content -Path 'artifact\INSTALL.txt' -Encoding UTF8
 
-      - name: Verify diagnostic markers in packaged source
-        shell: pwsh
-        run: |
-          $source = Get-Content 'artifact\RAGControl.patched.cs' -Raw
-          foreach ($marker in @('[INDEXING]', '[OK]', '[NO TEXT]', '[RAG SOURCES READY]', '_fileChunks')) {
-              if (-not $source.Contains($marker)) { throw "Missing diagnostic marker: $marker" }
-          }
-          Write-Host 'RAG diagnostic markers verified.'
-
-      - name: Upload patched build
+      - name: Upload verified build
         uses: actions/upload-artifact@v4
         with:
-          name: TextCraft-patched-scientific-RAG
+          name: TextCraft-1.0.11-verified-RAG
           path: artifact
           if-no-files-found: error
