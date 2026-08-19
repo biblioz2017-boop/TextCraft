@@ -1,0 +1,72 @@
+name: Build patched TextCraft
+
+on:
+  push:
+    branches:
+      - chatgpt/taskpane-fix
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore packages
+        shell: pwsh
+        run: nuget restore TextForge.sln
+
+      - name: Locate Visual Studio
+        id: vs
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          if (-not $vs) { throw "Visual Studio installation not found" }
+          "path=$vs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Visual Studio: $vs"
+
+      - name: Build TextCraft Release
+        shell: pwsh
+        run: |
+          $msbuild = Join-Path '${{ steps.vs.outputs.path }}' 'MSBuild\Current\Bin\MSBuild.exe'
+          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build MSI installer
+        id: msi
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $devenv = Join-Path '${{ steps.vs.outputs.path }}' 'Common7\IDE\devenv.com'
+          & $devenv TextForge.sln /Project OfficeAddInSetup /Build 'Release|Any CPU'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Collect build outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          if (Test-Path 'bin\Release') {
+            Copy-Item 'bin\Release' 'artifact\TextCraft-Release' -Recurse -Force
+          }
+          if (Test-Path 'OfficeAddInSetup\Release') {
+            Copy-Item 'OfficeAddInSetup\Release' 'artifact\OfficeAddInSetup-Release' -Recurse -Force
+          }
+          if (Test-Path 'OfficeAddInSetup\Debug') {
+            Copy-Item 'OfficeAddInSetup\Debug' 'artifact\OfficeAddInSetup-Debug' -Recurse -Force
+          }
+          "MSI build outcome: ${{ steps.msi.outcome }}" | Out-File 'artifact\BUILD_INFO.txt'
+          Get-ChildItem artifact -Recurse | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Add-Content 'artifact\BUILD_INFO.txt'
+
+      - name: Upload patched build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TextCraft-patched
+          path: artifact
+          if-no-files-found: error
+          retention-days: 30
