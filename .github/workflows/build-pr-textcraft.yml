@@ -54,6 +54,54 @@ jobs:
         shell: pwsh
         run: ./ci/build-patched.ps1
 
+      - name: Package trust certificate and installer
+        shell: pwsh
+        run: |
+          $cert = Get-Item "Cert:\CurrentUser\My\$env:TEXTCRAFT_CERT_THUMBPRINT"
+          Export-Certificate -Cert $cert -FilePath 'artifact\TextCraft-CI.cer' -Force | Out-Null
+
+          @'
+          $ErrorActionPreference = 'Stop'
+          $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+          Write-Host 'TextCraft patched build installer'
+          Write-Host 'This installs the build certificate only for the current Windows user.'
+
+          Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+              try { Unblock-File -LiteralPath $_.FullName -ErrorAction Stop } catch { }
+          }
+
+          $certPath = Join-Path $root 'TextCraft-CI.cer'
+          if (-not (Test-Path $certPath)) { throw "Certificate not found: $certPath" }
+
+          Import-Certificate -FilePath $certPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+          Import-Certificate -FilePath $certPath -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+          Write-Host 'Certificate trusted for current user.'
+
+          $vsto = Join-Path $root 'TextCraft.vsto'
+          if (-not (Test-Path $vsto)) { throw "VSTO manifest not found: $vsto" }
+          Write-Host 'Starting VSTO installer...'
+          Start-Process -FilePath $vsto
+          '@ | Set-Content -Path 'artifact\Install-TextCraft.ps1' -Encoding UTF8
+
+          @'
+          @echo off
+          cd /d "%~dp0"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-TextCraft.ps1"
+          if errorlevel 1 pause
+          '@ | Set-Content -Path 'artifact\Install-TextCraft.cmd' -Encoding ASCII
+
+          @'
+          TextCraft patched scientific-RAG build
+
+          Installation:
+          1. Close Microsoft Word completely.
+          2. Double-click Install-TextCraft.cmd.
+          3. The script trusts only the included self-signed TextCraft CI certificate for the current Windows user, then starts TextCraft.vsto.
+          4. Re-open Word after installation.
+
+          If Windows blocks the downloaded ZIP or extracted files, the installer script removes Mark-of-the-Web from this extracted folder before launching VSTO.
+          '@ | Set-Content -Path 'artifact\INSTALL.txt' -Encoding UTF8
+
       - name: Upload patched build
         uses: actions/upload-artifact@v4
         with:
