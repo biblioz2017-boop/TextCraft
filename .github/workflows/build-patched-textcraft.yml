@@ -34,11 +34,25 @@ jobs:
           "path=$vs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Visual Studio: $vs"
 
+      - name: Create temporary CI signing certificate
+        id: cert
+        shell: powershell
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=TextCraft CI" -CertStoreLocation "Cert:\CurrentUser\My" -KeyExportPolicy Exportable -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(2)
+          $password = ConvertTo-SecureString -String "TextCraftCI" -Force -AsPlainText
+          $pfx = Join-Path $PWD "TextCraft_CI_TemporaryKey.pfx"
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $password | Out-Null
+          "thumbprint=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "pfx=$pfx" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Created temporary signing certificate $($cert.Thumbprint)"
+
       - name: Build TextCraft Release
         shell: pwsh
         run: |
           $msbuild = Join-Path '${{ steps.vs.outputs.path }}' 'MSBuild\Current\Bin\MSBuild.exe'
-          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=false /p:SignAssembly=false /m /v:minimal
+          $thumb = '${{ steps.cert.outputs.thumbprint }}'
+          $pfx = '${{ steps.cert.outputs.pfx }}'
+          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=true /p:ManifestCertificateThumbprint=$thumb /p:ManifestKeyFile="$pfx" /m /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build MSI installer
