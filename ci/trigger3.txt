@@ -1,0 +1,1 @@
+Retry CI with temporary VSTO signing certificate.
