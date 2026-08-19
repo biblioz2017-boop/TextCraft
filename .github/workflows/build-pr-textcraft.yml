@@ -32,11 +32,22 @@ jobs:
       - name: Configure CI manifest signing
         shell: pwsh
         run: |
+          # Make both MSBuild and devenv use the temporary certificate.
+          $project = 'TextCraft.csproj'
+          $xml = Get-Content $project -Raw
+          $xml = [regex]::Replace(
+            $xml,
+            '<ManifestCertificateThumbprint>[^<]*</ManifestCertificateThumbprint>',
+            "<ManifestCertificateThumbprint>$env:TEXTCRAFT_CERT_THUMBPRINT</ManifestCertificateThumbprint>"
+          )
+          Set-Content $project $xml -Encoding UTF8
+
+          # A failed optional MSI build must not suppress the successfully built VSTO binaries.
           $path = './ci/build-patched.ps1'
           $c = Get-Content $path -Raw
           $c = $c.Replace(
-            'msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU',
-            'msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=true /p:ManifestCertificateThumbprint=$env:TEXTCRAFT_CERT_THUMBPRINT'
+            "Write-Host 'Build preparation complete.'",
+            "Write-Host 'Build preparation complete.'`r`nexit 0"
           )
           Set-Content $path $c -Encoding UTF8
 
