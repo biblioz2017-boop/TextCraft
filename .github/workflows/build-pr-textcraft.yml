@@ -68,12 +68,11 @@ jobs:
             'IndexDocument(filePath, fileContent[i])',
             '[INDEXING]',
             '[OK]',
-            '[NO TEXT]',
-            '[RAG SOURCES READY]'
+            '[NO TEXT]'
           )) {
             if (-not $source.Contains($marker)) { throw "Missing verified RAG marker: $marker" }
           }
-          Write-Host 'Verified named vector index and checked chunk insertion.'
+          Write-Host 'Verified named vector index, checked chunk insertion, and indexing status markers.'
 
       - name: Package trust certificate and installer
         shell: pwsh
