@@ -17,6 +17,14 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Disable manifest signing in CI
+        shell: pwsh
+        run: |
+          $path = './ci/build-patched.ps1'
+          $c = Get-Content $path -Raw
+          $c = $c.Replace('msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU', 'msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=false /p:SignAssembly=false')
+          Set-Content $path $c -Encoding UTF8
+
       - name: Build patched TextCraft
         shell: pwsh
         run: ./ci/build-patched.ps1
