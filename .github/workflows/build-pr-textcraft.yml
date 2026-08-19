@@ -17,12 +17,27 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Disable manifest signing in CI
+      - name: Create temporary VSTO signing certificate
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject 'CN=TextCraft CI Temporary' `
+            -CertStoreLocation 'Cert:\CurrentUser\My' `
+            -KeyExportPolicy Exportable `
+            -KeySpec Signature
+          "TEXTCRAFT_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Created temporary certificate $($cert.Thumbprint)"
+
+      - name: Configure CI manifest signing
         shell: pwsh
         run: |
           $path = './ci/build-patched.ps1'
           $c = Get-Content $path -Raw
-          $c = $c.Replace('msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU', 'msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=false /p:SignAssembly=false')
+          $c = $c.Replace(
+            'msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU',
+            'msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=true /p:ManifestCertificateThumbprint=$env:TEXTCRAFT_CERT_THUMBPRINT'
+          )
           Set-Content $path $c -Encoding UTF8
 
       - name: Build patched TextCraft
