@@ -38,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           $msbuild = Join-Path '${{ steps.vs.outputs.path }}' 'MSBuild\Current\Bin\MSBuild.exe'
-          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m /v:minimal
+          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=false /p:SignAssembly=false /m /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build MSI installer
