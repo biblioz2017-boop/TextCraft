@@ -46,18 +46,31 @@ jobs:
           "pfx=$pfx" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Created temporary signing certificate $($cert.Thumbprint)"
 
+      - name: Override VSTO signing for CI
+        shell: pwsh
+        run: |
+          $thumb = '${{ steps.cert.outputs.thumbprint }}'
+          $pfx = '${{ steps.cert.outputs.pfx }}'
+          $project = Get-Content 'TextCraft.csproj' -Raw
+          $override = @"
+            <PropertyGroup>
+              <SignManifests>true</SignManifests>
+              <ManifestCertificateThumbprint>$thumb</ManifestCertificateThumbprint>
+              <ManifestKeyFile>$pfx</ManifestKeyFile>
+            </PropertyGroup>
+          "@
+          $project = $project.Replace('</Project>', "$override`r`n</Project>")
+          Set-Content -Path 'TextCraft.csproj' -Value $project -Encoding UTF8
+
       - name: Build TextCraft Release
         shell: pwsh
         run: |
           $msbuild = Join-Path '${{ steps.vs.outputs.path }}' 'MSBuild\Current\Bin\MSBuild.exe'
-          $thumb = '${{ steps.cert.outputs.thumbprint }}'
-          $pfx = '${{ steps.cert.outputs.pfx }}'
-          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /p:SignManifests=true /p:ManifestCertificateThumbprint=$thumb /p:ManifestKeyFile="$pfx" /m /v:minimal
+          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build MSI installer
         id: msi
-        continue-on-error: true
         shell: pwsh
         run: |
           $devenv = Join-Path '${{ steps.vs.outputs.path }}' 'Common7\IDE\devenv.com'
@@ -79,14 +92,14 @@ jobs:
           foreach ($file in $installers) {
             Copy-Item $file.FullName (Join-Path $installerDir $file.Name) -Force
           }
-          "MSI build outcome: ${{ steps.msi.outcome }}" | Out-File 'artifact\BUILD_INFO.txt'
-          "Installer files found: $($installers.Count)" | Add-Content 'artifact\BUILD_INFO.txt'
+          if ($installers.Count -eq 0) { throw 'Installer build completed but no MSI/setup.exe was found.' }
+          "Installer files found: $($installers.Count)" | Out-File 'artifact\BUILD_INFO.txt'
           Get-ChildItem artifact -Recurse | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Add-Content 'artifact\BUILD_INFO.txt'
 
       - name: Upload patched build
         uses: actions/upload-artifact@v4
         with:
-          name: TextCraft-patched
+          name: TextCraft-patched-installer
           path: artifact
           if-no-files-found: error
           retention-days: 30
