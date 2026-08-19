@@ -200,6 +200,15 @@ if ($msiExit -ne 0) { Write-Warning "MSI build failed with exit code $msiExit; b
 
 New-Item -ItemType Directory -Force artifact | Out-Null
 if (Test-Path 'bin\Release') { Copy-Item 'bin\Release\*' artifact -Recurse -Force }
+
+# VSTO/ClickOnce manifest includes this System.Text.Json linker descriptor as an application file.
+# MSBuild leaves it in the restored package tree instead of bin\Release, so copy it explicitly.
+$ilLinkDescriptor = Get-ChildItem 'packages' -Recurse -File -Filter 'ILLink.Descriptors.LibraryBuild.xml' -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $ilLinkDescriptor) { throw 'ILLink.Descriptors.LibraryBuild.xml was referenced by the VSTO manifest but not found in restored packages.' }
+New-Item -ItemType Directory -Force 'artifact\ILLink' | Out-Null
+Copy-Item $ilLinkDescriptor.FullName 'artifact\ILLink\ILLink.Descriptors.LibraryBuild.xml' -Force
+Write-Host "Included VSTO application file: $($ilLinkDescriptor.FullName)"
+
 Get-ChildItem 'OfficeAddInSetup' -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Extension -in '.msi','.exe' } |
     Copy-Item -Destination artifact -Force
