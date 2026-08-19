@@ -32,7 +32,6 @@ jobs:
       - name: Configure CI manifest signing
         shell: pwsh
         run: |
-          # Make both MSBuild and devenv use the temporary certificate.
           $project = 'TextCraft.csproj'
           $xml = Get-Content $project -Raw
           $xml = [regex]::Replace(
@@ -41,6 +40,27 @@ jobs:
             "<ManifestCertificateThumbprint>$env:TEXTCRAFT_CERT_THUMBPRINT</ManifestCertificateThumbprint>"
           )
           Set-Content $project $xml -Encoding UTF8
+
+          # Setup Projects can fail under out-of-process build with HRESULT 8000000A.
+          # Use the helper installed with Microsoft Visual Studio Installer Projects when available.
+          $vsRoot = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
+          $disable = Get-ChildItem $vsRoot -Recurse -Filter DisableOutOfProcBuild.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($disable) {
+            Write-Host "Running $($disable.FullName)"
+            & $disable.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Warning "DisableOutOfProcBuild returned $LASTEXITCODE" }
+          }
+          else {
+            Write-Warning 'DisableOutOfProcBuild.exe not found; applying registry fallback.'
+            $keys = @(
+              'HKCU:\SOFTWARE\Microsoft\VisualStudio\17.0_Config\MSBuild',
+              'HKCU:\SOFTWARE\Microsoft\VisualStudio\17.0\MSBuild'
+            )
+            foreach ($key in $keys) {
+              New-Item -Path $key -Force | Out-Null
+              New-ItemProperty -Path $key -Name EnableOutOfProcBuild -Value 0 -PropertyType DWord -Force | Out-Null
+            }
+          }
 
           # A failed optional MSI build must not suppress the successfully built VSTO binaries.
           $path = './ci/build-patched.ps1'
