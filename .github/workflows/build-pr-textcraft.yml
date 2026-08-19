@@ -28,7 +28,7 @@ jobs:
             -KeySpec Signature
           "TEXTCRAFT_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Configure version and verified RAG indexing
+      - name: Configure TextCraft 1.0.11 signing and version
         shell: pwsh
         run: |
           $project = 'TextCraft.csproj'
@@ -51,104 +51,9 @@ jobs:
           $assembly = [regex]::Replace($assembly, 'AssemblyFileVersion\("[^"]+"\)', 'AssemblyFileVersion("1.0.11.0")')
           Set-Content $assemblyInfo $assembly -Encoding UTF8
 
-          $path = './ci/build-patched.ps1'
-          $script = Get-Content $path -Raw
-
-          $script = $script.Replace(
-            '            IEnumerable<string> fileContent;',
-            '            List<string> fileContent;'
-          )
-          $script = $script.Replace(
-            '                fileContent = await ReadPdfFileAsync(filePath, CHUNK_LEN);',
-            @'
-                fileContent = (await ReadPdfFileAsync(filePath, CHUNK_LEN)).ToList();
-                if (fileContent.Count == 0)
-                {
-                    MarkFileStatus(filePath, $"[NO TEXT] {Path.GetFileName(filePath)} (0 chunks)");
-                    _activeIndexVersions.TryRemove(filePath, out _);
-                    return;
-                }
-                MarkFileStatus(filePath, $"[INDEXING] {Path.GetFileName(filePath)} ({fileContent.Count} chunks)");
-'@
-          )
-          $script = $script.Replace(
-            '            var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, Path.GetTempPath());',
-            @'
-            var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, Path.GetTempPath());
-            if (!stagedDb.CreateIndex(filePath))
-                throw new InvalidOperationException($"Could not create vector index for {filePath}");
-'@
-          )
-          $script = $script.Replace(
-            '                    int fileContentCount = fileContent.Count();',
-            '                    int fileContentCount = fileContent.Count;'
-          )
-          $script = $script.Replace(
-            '                        stagedDb.IndexDocument(fileContent.ElementAt(i));',
-            @'
-                        if (!stagedDb.IndexDocument(filePath, fileContent[i]))
-                            throw new InvalidOperationException($"Vector indexing failed for {Path.GetFileName(filePath)}, chunk {i + 1}/{fileContentCount}");
-'@
-          )
-
-          $oldPublish = @'
-            long currentVersion;
-            if (_activeIndexVersions.TryGetValue(filePath, out currentVersion) && currentVersion == indexVersion)
-                _fileDatabases[filePath] = stagedDb;
-        }
-
-        private void RemoveFileEntry(string filePath)
-'@
-          $newPublish = @'
-            long currentVersion;
-            if (_activeIndexVersions.TryGetValue(filePath, out currentVersion) && currentVersion == indexVersion)
-            {
-                _fileDatabases[filePath] = stagedDb;
-                MarkFileStatus(filePath, $"[OK] {Path.GetFileName(filePath)} ({fileContent.Count} chunks)");
-            }
-        }
-
-        private void MarkFileStatus(string filePath, string label)
-        {
-            Action update = () =>
-            {
-                for (int i = 0; i < _fileList.Count; i++)
-                {
-                    if (string.Equals(_fileList[i].Value, filePath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        _fileList[i] = new KeyValuePair<string, string>(label, filePath);
-                        break;
-                    }
-                }
-            };
-
-            if (this.InvokeRequired)
-                this.Invoke((MethodInvoker)delegate { update(); });
-            else
-                update();
-        }
-
-        private void RemoveFileEntry(string filePath)
-'@
-          if (-not $script.Contains($oldPublish)) { throw 'Could not locate RAG publish block in build script' }
-          $script = $script.Replace($oldPublish, $newPublish)
-
-          $oldQueryBuilder = '            StringBuilder ragContext = new StringBuilder();'
-          $newQueryBuilder = @'
-            StringBuilder ragContext = new StringBuilder();
-            ragContext.AppendLine("[RAG SOURCES READY]");
-            foreach (var source in databases.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
-                ragContext.AppendLine($"- {Path.GetFileName(source.Key)}");
-            ragContext.AppendLine();
-'@
-          if (-not $script.Contains($oldQueryBuilder)) { throw 'Could not locate RAG context builder in build script' }
-          $script = $script.Replace($oldQueryBuilder, $newQueryBuilder.TrimEnd())
-
-          $script = $script.Replace(
-            "Write-Host 'Build preparation complete.'",
-            "Write-Host 'Build preparation complete.'`r`nexit 0"
-          )
-          Set-Content $path $script -Encoding UTF8
+      - name: Apply verified RAG fix
+        shell: pwsh
+        run: ./ci/apply-v11-fix.ps1
 
       - name: Build TextCraft
         shell: pwsh
