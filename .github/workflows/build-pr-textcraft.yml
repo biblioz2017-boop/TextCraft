@@ -29,7 +29,7 @@ jobs:
           "TEXTCRAFT_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Created temporary certificate $($cert.Thumbprint)"
 
-      - name: Configure CI manifest signing and RAG diagnostics
+      - name: Configure CI manifest signing
         shell: pwsh
         run: |
           $project = 'TextCraft.csproj'
@@ -39,8 +39,6 @@ jobs:
             '<ManifestCertificateThumbprint>[^<]*</ManifestCertificateThumbprint>',
             "<ManifestCertificateThumbprint>$env:TEXTCRAFT_CERT_THUMBPRINT</ManifestCertificateThumbprint>"
           )
-          # Give every patched diagnostic build a newer ClickOnce/VSTO identity so Word
-          # cannot silently keep running a previously cached 1.0.0.0 deployment.
           $xml = [regex]::Replace(
             $xml,
             '<ApplicationVersion>[^<]*</ApplicationVersion>',
@@ -54,154 +52,9 @@ jobs:
           $assembly = $assembly.Replace('AssemblyFileVersion("1.0.8.0")', 'AssemblyFileVersion("1.0.9.0")')
           Set-Content $assemblyInfo $assembly -Encoding UTF8
 
-          # Patch the branch build script at runtime. The branch script creates the
-          # scientific-PDF parser and per-file vector databases; these additions make
-          # indexing state visible in Word and make an empty RAG state explicit instead
-          # of silently allowing the model to hallucinate that no documents exist.
+          # A failed optional MSI build must not suppress the successfully built VSTO binaries.
           $path = './ci/build-patched.ps1'
           $c = Get-Content $path -Raw
-
-          $fieldNeedle = '        private ConcurrentDictionary<string, long> _activeIndexVersions = new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);'
-          $fieldReplacement = @'
-        private ConcurrentDictionary<string, long> _activeIndexVersions = new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-        private ConcurrentDictionary<string, List<string>> _fileChunks = new ConcurrentDictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-'@
-          if (-not $c.Contains($fieldNeedle)) { throw 'Could not locate multi-document RAG state fields in build script' }
-          $c = $c.Replace($fieldNeedle, $fieldReplacement.TrimEnd())
-
-          $c = $c.Replace(
-            '            _activeIndexVersions.Clear();',
-            "            _activeIndexVersions.Clear();`r`n            _fileChunks.Clear();"
-          )
-
-          $c = $c.Replace(
-            '            DeleteDocument(selectedDocument);',
-            "            DeleteDocument(selectedDocument);`r`n            _fileChunks.TryRemove(selectedDocument, out _);"
-          )
-
-          $oldIndexRead = @'
-            IEnumerable<string> fileContent;
-            try
-            {
-                fileContent = await ReadPdfFileAsync(filePath, CHUNK_LEN);
-            }
-'@
-          $newIndexRead = @'
-            List<string> fileContent;
-            try
-            {
-                fileContent = (await ReadPdfFileAsync(filePath, CHUNK_LEN)).ToList();
-                if (fileContent.Count == 0)
-                {
-                    MarkFileStatus(filePath, $"[NO TEXT] {Path.GetFileName(filePath)} (0 chunks)");
-                    _activeIndexVersions.TryRemove(filePath, out _);
-                    return;
-                }
-                MarkFileStatus(filePath, $"[INDEXING] {Path.GetFileName(filePath)} ({fileContent.Count} chunks)");
-            }
-'@
-          if (-not $c.Contains($oldIndexRead)) { throw 'Could not locate RAG PDF read block in build script' }
-          $c = $c.Replace($oldIndexRead, $newIndexRead)
-
-          $c = $c.Replace('                    int fileContentCount = fileContent.Count();', '                    int fileContentCount = fileContent.Count;')
-          $c = $c.Replace('                        stagedDb.IndexDocument(fileContent.ElementAt(i));', '                        stagedDb.IndexDocument(fileContent[i]);')
-
-          $oldPublish = @'
-            long currentVersion;
-            if (_activeIndexVersions.TryGetValue(filePath, out currentVersion) && currentVersion == indexVersion)
-                _fileDatabases[filePath] = stagedDb;
-        }
-
-        private void RemoveFileEntry(string filePath)
-'@
-          $newPublish = @'
-            long currentVersion;
-            if (_activeIndexVersions.TryGetValue(filePath, out currentVersion) && currentVersion == indexVersion)
-            {
-                _fileDatabases[filePath] = stagedDb;
-                _fileChunks[filePath] = fileContent;
-                MarkFileStatus(filePath, $"[OK] {Path.GetFileName(filePath)} ({fileContent.Count} chunks)");
-            }
-        }
-
-        private void MarkFileStatus(string filePath, string label)
-        {
-            Action update = () =>
-            {
-                for (int i = 0; i < _fileList.Count; i++)
-                {
-                    if (string.Equals(_fileList[i].Value, filePath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        _fileList[i] = new KeyValuePair<string, string>(label, filePath);
-                        break;
-                    }
-                }
-            };
-
-            if (this.InvokeRequired)
-                this.Invoke((MethodInvoker)delegate { update(); });
-            else
-                update();
-        }
-
-        private void RemoveFileEntry(string filePath)
-'@
-          if (-not $c.Contains($oldPublish)) { throw 'Could not locate RAG publish block in build script' }
-          $c = $c.Replace($oldPublish, $newPublish)
-
-          $oldDelete = @'
-        private bool DeleteDocument(string filePath)
-        {
-            HyperVectorDB.HyperVectorDB removed;
-            return _fileDatabases.TryRemove(filePath, out removed);
-        }
-'@
-          $newDelete = @'
-        private bool DeleteDocument(string filePath)
-        {
-            HyperVectorDB.HyperVectorDB removed;
-            _fileChunks.TryRemove(filePath, out _);
-            return _fileDatabases.TryRemove(filePath, out removed);
-        }
-'@
-          if (-not $c.Contains($oldDelete)) { throw 'Could not locate RAG delete block in build script' }
-          $c = $c.Replace($oldDelete, $newDelete)
-
-          $oldEmpty = @'
-            var databases = _fileDatabases.ToArray();
-            if (databases.Length == 0 || maxTokens <= 0)
-                return string.Empty;
-'@
-          $newEmpty = @'
-            var databases = _fileDatabases.ToArray();
-            if (maxTokens <= 0)
-                return string.Empty;
-            if (databases.Length == 0)
-            {
-                if (_fileList != null && _fileList.Count > 0)
-                    return "[RAG STATUS: files are attached, but no PDF has completed indexing. Check the RAG list for [INDEXING] or [NO TEXT].]";
-                return string.Empty;
-            }
-'@
-          if (-not $c.Contains($oldEmpty)) { throw 'Could not locate empty RAG query block in build script' }
-          $c = $c.Replace($oldEmpty, $newEmpty)
-
-          $oldContextBuilder = '            StringBuilder ragContext = new StringBuilder();'
-          $newContextBuilder = @'
-            StringBuilder ragContext = new StringBuilder();
-            ragContext.AppendLine("[RAG SOURCES READY]");
-            foreach (var source in databases.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
-            {
-                List<string> sourceChunks;
-                int chunkCount = _fileChunks.TryGetValue(source.Key, out sourceChunks) ? sourceChunks.Count : 0;
-                ragContext.AppendLine($"- {Path.GetFileName(source.Key)} ({chunkCount} chunks)");
-            }
-            ragContext.AppendLine();
-'@
-          if (-not $c.Contains($oldContextBuilder)) { throw 'Could not locate RAG context builder in build script' }
-          $c = $c.Replace($oldContextBuilder, $newContextBuilder.TrimEnd())
-
-          # A failed optional MSI build must not suppress the successfully built VSTO binaries.
           $c = $c.Replace(
             "Write-Host 'Build preparation complete.'",
             "Write-Host 'Build preparation complete.'`r`nexit 0"
