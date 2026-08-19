@@ -3,6 +3,8 @@ name: Build patched TextCraft
 on:
   push:
     branches: [ rag-scientific-pdf-patch ]
+  pull_request:
+    branches: [ master ]
   workflow_dispatch:
 
 jobs:
@@ -39,26 +41,6 @@ jobs:
           $new = @'
                         try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen, Path.GetFileName(filePath)); } 
                         finally { unlockedDoc.Dispose(); }
-'@
-          $c = $c.Replace($old, $new)
-
-          $old = @'
-                            try { IteratePdfFile(ref embedDoc, ref chunks, chunkLen); }
-                            finally { embedDoc.Dispose(); }
-'@
-          $new = @'
-                            try { IteratePdfFile(ref embedDoc, ref chunks, chunkLen, embeddedFile.Name); }
-                            finally { embedDoc.Dispose(); }
-'@
-          $c = $c.Replace($old, $new)
-
-          $old = @'
-                                try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen); }
-                                finally { unlockedDoc.Dispose(); }
-'@
-          $new = @'
-                                try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen, embeddedFile.Name); }
-                                finally { unlockedDoc.Dispose(); }
 '@
           $c = $c.Replace($old, $new)
 
@@ -119,8 +101,6 @@ jobs:
                     if (string.IsNullOrWhiteSpace(text))
                         continue;
 
-                    // Avoid indexing isolated layout labels as standalone documents.
-                    // They are still preserved when attached to meaningful page text.
                     if (IsLowValueStandaloneBlock(text))
                         continue;
 
