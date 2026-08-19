@@ -101,6 +101,8 @@ $newPublish = @'
 '@
 $scriptText = Replace-Required $scriptText $oldPublish $newPublish 'publish/status method'
 
+# This replacement is unique to the final multi-document GetRAGContext template, so it
+# does not alter the original $old query template that build-patched.ps1 must match first.
 $oldEmpty = @'
             var databases = _fileDatabases.ToArray();
             if (databases.Length == 0 || maxTokens <= 0)
@@ -119,17 +121,9 @@ $newEmpty = @'
 '@
 $scriptText = Replace-Required $scriptText $oldEmpty $newEmpty 'empty RAG status'
 
-$oldBuilder = @'
-            StringBuilder ragContext = new StringBuilder();
-'@
-$newBuilder = @'
-            StringBuilder ragContext = new StringBuilder();
-            ragContext.AppendLine("[RAG SOURCES READY]");
-            foreach (var source in databases.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
-                ragContext.AppendLine($"- {Path.GetFileName(source.Key)}");
-            ragContext.AppendLine();
-'@
-$scriptText = Replace-Required $scriptText $oldBuilder $newBuilder 'RAG ready-source header'
+# Do not globally replace the common 'StringBuilder ragContext' line here. It exists in
+# both the old and new query templates; changing both prevents build-patched.ps1 from
+# recognizing the original RAG method and caused run #15 to fail before compilation.
 
 $scriptText = Replace-Required $scriptText `
     "Write-Host 'Build preparation complete.'" `
