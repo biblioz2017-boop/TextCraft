@@ -216,3 +216,4 @@ Copy-Item RAGControl.cs artifact\RAGControl.patched.cs
 Copy-Item ThisAddIn.cs artifact\ThisAddIn.patched.cs
 
 Write-Host 'Build preparation complete.'
+# CI packaging revision: trust-certificate bundle is added by the workflow.
