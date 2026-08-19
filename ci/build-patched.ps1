@@ -3,9 +3,223 @@ $ErrorActionPreference = 'Stop'
 Write-Host 'Patching RAGControl.cs...'
 $path = 'RAGControl.cs'
 $c = Get-Content $path -Raw
-$c = $c.Replace('using System.Text;', "using System.Text;`r`nusing System.Text.RegularExpressions;")
+$c = $c.Replace('using System.Text;', "using System.Text;`r`nusing System.Text.RegularExpressions;`r`nusing System.Threading;")
 $c = $c.Replace('public static readonly int CHUNK_LEN = CommonUtils.TokensToCharCount(256);', "public static readonly int CHUNK_LEN = CommonUtils.TokensToCharCount(640);`r`n        public static readonly int CHUNK_OVERLAP = CommonUtils.TokensToCharCount(96);")
 $c = $c.Replace('int progressBarIncrement = (int)(fileContentCount * 0.1);', 'int progressBarIncrement = Math.Max(1, (int)Math.Ceiling(fileContentCount * 0.1));')
+
+# Multi-document RAG: keep one independent HyperVectorDB per PDF. HyperVectorDB 1.0.6
+# performs its all-index query with an unsafe shared List<T>, so querying several indexes
+# inside one database can lose results or fail. A per-file database also lets us reserve
+# RAG context for every attached PDF instead of allowing one file to dominate all hits.
+$old = @'
+        private ToolTip _fileToolTip = new ToolTip();
+        private Queue<string> _removalQueue = new Queue<string>();
+        private ConcurrentDictionary<int, int> _indexFileCount = new ConcurrentDictionary<int, int>();
+        private BindingList<KeyValuePair<string, string>> _fileList; // Use KeyValuePair for label and filename
+        private HyperVectorDB.HyperVectorDB _db;
+        private bool _isIndexing;
+        private float preciseProgressBar = 0;
+'@
+$new = @'
+        private ToolTip _fileToolTip = new ToolTip();
+        private ConcurrentDictionary<int, int> _indexFileCount = new ConcurrentDictionary<int, int>();
+        private BindingList<KeyValuePair<string, string>> _fileList; // Use KeyValuePair for label and filename
+        private ConcurrentDictionary<string, HyperVectorDB.HyperVectorDB> _fileDatabases = new ConcurrentDictionary<string, HyperVectorDB.HyperVectorDB>(StringComparer.OrdinalIgnoreCase);
+        private ConcurrentDictionary<string, long> _activeIndexVersions = new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        private long _nextIndexVersion = 0;
+        private float preciseProgressBar = 0;
+'@
+if (-not $c.Contains($old)) { throw 'Could not locate RAG database fields' }
+$c = $c.Replace($old, $new)
+
+$old = @'
+            lock (Forge.InitializeDoor)
+            {
+                _db = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, Path.GetTempPath());
+            }
+'@
+$new = @'
+            _fileDatabases.Clear();
+            _activeIndexVersions.Clear();
+'@
+if (-not $c.Contains($old)) { throw 'Could not locate RAG database initialization' }
+$c = $c.Replace($old, $new)
+
+$old = @'
+        private void RemoveSelectedDocument()
+        {
+            string selectedDocument = FileListBox.SelectedItem.ToString();
+            if (_isIndexing)
+            {
+                if (!_removalQueue.Contains(selectedDocument))
+                    _removalQueue.Enqueue(selectedDocument);
+            }
+            else
+            {
+                DeleteDocument(selectedDocument);
+            }
+            _fileList.RemoveAt(FileListBox.SelectedIndex);
+            AutoHideRemoveButton();
+        }
+'@
+$new = @'
+        private void RemoveSelectedDocument()
+        {
+            if (FileListBox.SelectedIndex < 0 || FileListBox.SelectedItem == null)
+                return;
+
+            var selectedItem = (KeyValuePair<string, string>)FileListBox.SelectedItem;
+            string selectedDocument = selectedItem.Value;
+
+            // Invalidates any in-flight indexing for this exact file. If the user removes
+            // and immediately re-adds it, the new indexing receives a newer version and
+            // the old task cannot publish stale vectors.
+            _activeIndexVersions.TryRemove(selectedDocument, out _);
+            DeleteDocument(selectedDocument);
+
+            _fileList.RemoveAt(FileListBox.SelectedIndex);
+            AutoHideRemoveButton();
+        }
+'@
+if (-not $c.Contains($old)) { throw 'Could not locate RAG removal method' }
+$c = $c.Replace($old, $new)
+
+$startMulti = $c.IndexOf('        private async Task IndexDocumentAsync(string filePath)')
+$endMulti = $c.IndexOf('        private void AutoHideRemoveButton()', $startMulti)
+if ($startMulti -lt 0 -or $endMulti -lt 0) { throw 'Could not locate RAG indexing methods' }
+$multiReplacement = @'
+        private async Task IndexDocumentAsync(string filePath)
+        {
+            long indexVersion = Interlocked.Increment(ref _nextIndexVersion);
+            _activeIndexVersions[filePath] = indexVersion;
+
+            IEnumerable<string> fileContent;
+            try
+            {
+                fileContent = await ReadPdfFileAsync(filePath, CHUNK_LEN);
+            }
+            catch
+            {
+                _activeIndexVersions.TryRemove(filePath, out _);
+                RemoveFileEntry(filePath);
+                throw;
+            }
+
+            // Build a complete private database first. It is published atomically only
+            // after all chunks have embeddings, so Generate can safely keep using the
+            // already-indexed PDFs while a newly added PDF is still processing.
+            var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, Path.GetTempPath());
+
+            try
+            {
+                await Task.Run(() =>
+                {
+                    int fileContentCount = fileContent.Count();
+                    int progressBarIncrement = Math.Max(1, (int)Math.Ceiling(fileContentCount * 0.1));
+
+                    for (int i = 0; i < fileContentCount; i++)
+                    {
+                        stagedDb.IndexDocument(fileContent.ElementAt(i));
+                        if (i % progressBarIncrement == 0)
+                        {
+                            this.Invoke((MethodInvoker)delegate
+                            {
+                                UpdateProgressBar((float)progressBarIncrement / Math.Max(1, fileContentCount));
+                            });
+                        }
+                    }
+                });
+            }
+            catch
+            {
+                long ignoredVersion;
+                _activeIndexVersions.TryRemove(filePath, out ignoredVersion);
+                RemoveFileEntry(filePath);
+                throw;
+            }
+
+            long currentVersion;
+            if (_activeIndexVersions.TryGetValue(filePath, out currentVersion) && currentVersion == indexVersion)
+                _fileDatabases[filePath] = stagedDb;
+        }
+
+        private void RemoveFileEntry(string filePath)
+        {
+            Action remove = () =>
+            {
+                var fileEntry = _fileList.FirstOrDefault(file => file.Value == filePath);
+                if (fileEntry.Key != null)
+                    _fileList.Remove(fileEntry);
+                AutoHideRemoveButton();
+            };
+
+            if (this.InvokeRequired)
+                this.Invoke((MethodInvoker)delegate { remove(); });
+            else
+                remove();
+        }
+
+        private bool DeleteDocument(string filePath)
+        {
+            HyperVectorDB.HyperVectorDB removed;
+            return _fileDatabases.TryRemove(filePath, out removed);
+        }
+
+'@
+$c = $c.Substring(0, $startMulti) + $multiReplacement + $c.Substring($endMulti)
+
+$removeQueueStart = $c.IndexOf('        private void ProcessRemovalQueue()')
+$removeQueueEnd = $c.IndexOf('        public static async Task<IEnumerable<string>> ReadPdfFileAsync', $removeQueueStart)
+if ($removeQueueStart -lt 0 -or $removeQueueEnd -lt 0) { throw 'Could not locate obsolete RAG removal queue' }
+$c = $c.Substring(0, $removeQueueStart) + $c.Substring($removeQueueEnd)
+
+$old = @'
+        public string GetRAGContext(string query, int maxTokens)
+        {
+            if (_fileList.Count == 0) return string.Empty;
+            var result = _db.QueryCosineSimilarity(query, _fileList.Count * 10); // 10 results per file
+            StringBuilder ragContext = new StringBuilder();
+            foreach (var document in result.Documents)
+                ragContext.AppendLine(document.DocumentString);
+            return CommonUtils.SubstringTokens(ragContext.ToString(), maxTokens);
+        }
+'@
+$new = @'
+        public string GetRAGContext(string query, int maxTokens)
+        {
+            var databases = _fileDatabases.ToArray();
+            if (databases.Length == 0 || maxTokens <= 0)
+                return string.Empty;
+
+            // Reserve an equal token budget for every fully indexed PDF. This prevents a
+            // highly similar first paper from consuming the complete RAG context and makes
+            // multi-paper comparison predictable.
+            int perFileTokenBudget = Math.Max(1, maxTokens / databases.Length);
+            StringBuilder ragContext = new StringBuilder();
+
+            foreach (var entry in databases.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var result = entry.Value.QueryCosineSimilarity(query, 10);
+                if (result.Documents.Count == 0)
+                    continue;
+
+                StringBuilder fileContext = new StringBuilder();
+                foreach (var document in result.Documents)
+                    fileContext.AppendLine(document.DocumentString);
+
+                string boundedFileContext = CommonUtils.SubstringTokens(fileContext.ToString(), perFileTokenBudget);
+                if (!string.IsNullOrWhiteSpace(boundedFileContext))
+                {
+                    ragContext.AppendLine(boundedFileContext);
+                    ragContext.AppendLine();
+                }
+            }
+
+            return CommonUtils.SubstringTokens(ragContext.ToString(), maxTokens);
+        }
+'@
+if (-not $c.Contains($old)) { throw 'Could not locate RAG query method' }
+$c = $c.Replace($old, $new)
 
 $c = $c.Replace('try { IteratePdfFile(ref doc, ref chunks, chunkLen); }', 'try { IteratePdfFile(ref doc, ref chunks, chunkLen, Path.GetFileName(filePath)); }')
 $c = $c.Replace('try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen); }', 'try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen, Path.GetFileName(filePath)); }')
