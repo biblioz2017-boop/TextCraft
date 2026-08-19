@@ -50,17 +50,12 @@ jobs:
         shell: pwsh
         run: |
           $thumb = '${{ steps.cert.outputs.thumbprint }}'
-          $pfx = '${{ steps.cert.outputs.pfx }}'
           $project = Get-Content 'TextCraft.csproj' -Raw
-          $override = @"
-            <PropertyGroup>
-              <SignManifests>true</SignManifests>
-              <ManifestCertificateThumbprint>$thumb</ManifestCertificateThumbprint>
-              <ManifestKeyFile>$pfx</ManifestKeyFile>
-            </PropertyGroup>
-          "@
-          $project = $project.Replace('</Project>', "$override`r`n</Project>")
+          $project = [regex]::Replace($project, '<ManifestCertificateThumbprint>.*?</ManifestCertificateThumbprint>', "<ManifestCertificateThumbprint>$thumb</ManifestCertificateThumbprint>")
+          $project = [regex]::Replace($project, '<ManifestKeyFile>.*?</ManifestKeyFile>', '<ManifestKeyFile>TextCraft_CI_TemporaryKey.pfx</ManifestKeyFile>')
+          $project = [regex]::Replace($project, '<SignManifests>.*?</SignManifests>', '<SignManifests>true</SignManifests>')
           Set-Content -Path 'TextCraft.csproj' -Value $project -Encoding UTF8
+          Select-String -Path 'TextCraft.csproj' -Pattern 'SignManifests|ManifestKeyFile|ManifestCertificateThumbprint'
 
       - name: Build TextCraft Release
         shell: pwsh
@@ -70,7 +65,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build MSI installer
-        id: msi
         shell: pwsh
         run: |
           $devenv = Join-Path '${{ steps.vs.outputs.path }}' 'Common7\IDE\devenv.com'
@@ -86,9 +80,9 @@ jobs:
           }
           $installerDir = 'artifact\Installer'
           New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
-          $installers = Get-ChildItem -Path . -Recurse -File | Where-Object {
+          $installers = @(Get-ChildItem -Path . -Recurse -File | Where-Object {
             $_.Extension -ieq '.msi' -or $_.Name -ieq 'setup.exe'
-          }
+          })
           foreach ($file in $installers) {
             Copy-Item $file.FullName (Join-Path $installerDir $file.Name) -Force
           }
