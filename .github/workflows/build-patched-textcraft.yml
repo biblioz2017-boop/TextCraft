@@ -1,0 +1,310 @@
+name: Build patched TextCraft
+
+on:
+  push:
+    branches: [ rag-scientific-pdf-patch ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch scientific PDF RAG
+        shell: pwsh
+        run: |
+          $path = "RAGControl.cs"
+          $c = Get-Content $path -Raw
+
+          $c = $c.Replace("using System.Text;", "using System.Text;`r`nusing System.Text.RegularExpressions;")
+          $c = $c.Replace("public static readonly int CHUNK_LEN = CommonUtils.TokensToCharCount(256);", "public static readonly int CHUNK_LEN = CommonUtils.TokensToCharCount(640);`r`n        public static readonly int CHUNK_OVERLAP = CommonUtils.TokensToCharCount(96);")
+          $c = $c.Replace("int progressBarIncrement = (int)(fileContentCount * 0.1);", "int progressBarIncrement = Math.Max(1, (int)Math.Ceiling(fileContentCount * 0.1));")
+
+          $old = @'
+                    try { IteratePdfFile(ref doc, ref chunks, chunkLen); }
+                    finally { doc.Dispose(); }
+'@
+          $new = @'
+                    try { IteratePdfFile(ref doc, ref chunks, chunkLen, Path.GetFileName(filePath)); }
+                    finally { doc.Dispose(); }
+'@
+          $c = $c.Replace($old, $new)
+
+          $old = @'
+                        try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen); } 
+                        finally { unlockedDoc.Dispose(); }
+'@
+          $new = @'
+                        try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen, Path.GetFileName(filePath)); } 
+                        finally { unlockedDoc.Dispose(); }
+'@
+          $c = $c.Replace($old, $new)
+
+          $old = @'
+                            try { IteratePdfFile(ref embedDoc, ref chunks, chunkLen); }
+                            finally { embedDoc.Dispose(); }
+'@
+          $new = @'
+                            try { IteratePdfFile(ref embedDoc, ref chunks, chunkLen, embeddedFile.Name); }
+                            finally { embedDoc.Dispose(); }
+'@
+          $c = $c.Replace($old, $new)
+
+          $old = @'
+                                try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen); }
+                                finally { unlockedDoc.Dispose(); }
+'@
+          $new = @'
+                                try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen, embeddedFile.Name); }
+                                finally { unlockedDoc.Dispose(); }
+'@
+          $c = $c.Replace($old, $new)
+
+          $start = $c.IndexOf("        private static void IteratePdfFile(ref PdfDocument document, ref List<string> chunks, int chunkLen)")
+          $end = $c.IndexOf("        public string GetRAGContext", $start)
+          if ($start -lt 0 -or $end -lt 0) { throw "Could not locate PDF iteration methods" }
+
+          $replacement = @'
+        private static void IteratePdfFile(ref PdfDocument document, ref List<string> chunks, int chunkLen, string sourceName)
+        {
+            IterateInnerPdfFile(ref document, ref chunks, chunkLen, sourceName);
+
+            IReadOnlyList<EmbeddedFile> embeddedFiles;
+            if (document.Advanced.TryGetEmbeddedFiles(out embeddedFiles))
+            {
+                foreach (var embeddedFile in embeddedFiles)
+                {
+                    if (embeddedFile.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            PdfDocument embedDoc;
+                            try { embedDoc = PdfDocument.Open(embeddedFile.Bytes.ToArray()); }
+                            catch (PdfDocumentEncryptedException) { throw new ArgumentException(); }
+
+                            try { IteratePdfFile(ref embedDoc, ref chunks, chunkLen, embeddedFile.Name); }
+                            finally { embedDoc.Dispose(); }
+                        }
+                        catch (ArgumentException)
+                        {
+                            PasswordPrompt passwordDialog = new PasswordPrompt();
+                            if (passwordDialog.ShowDialog() == DialogResult.OK)
+                            {
+                                PdfDocument unlockedDoc = PdfDocument.Open(embeddedFile.Bytes.ToArray(), new ParsingOptions { Password = passwordDialog.Password });
+                                try { IteratePdfFile(ref unlockedDoc, ref chunks, chunkLen, embeddedFile.Name); }
+                                finally { unlockedDoc.Dispose(); }
+                            }
+                            else
+                            {
+                                throw new InvalidDataException(_cultureHelper.GetLocalizedString("[ReadPdfFileAsync] InvalidDataException #1"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void IterateInnerPdfFile(ref PdfDocument doc, ref List<string> chunks, int chunkLen, string sourceName)
+        {
+            foreach (var page in doc.GetPages())
+            {
+                var pageText = new StringBuilder();
+                var blocks = DocstrumBoundingBoxes.Instance.GetBlocks(page.GetWords());
+
+                foreach (var block in blocks)
+                {
+                    string text = NormalizePdfText(block.Text);
+                    if (string.IsNullOrWhiteSpace(text))
+                        continue;
+
+                    // Avoid indexing isolated layout labels as standalone documents.
+                    // They are still preserved when attached to meaningful page text.
+                    if (IsLowValueStandaloneBlock(text))
+                        continue;
+
+                    if (pageText.Length > 0)
+                        pageText.AppendLine();
+                    pageText.Append(text);
+                }
+
+                string normalizedPage = NormalizePdfText(pageText.ToString());
+                if (normalizedPage.Length < 80)
+                    continue;
+
+                foreach (string chunk in SplitTextWithOverlap(normalizedPage, chunkLen, CHUNK_OVERLAP))
+                {
+                    string metadata = $"[Source: {sourceName}; Page: {page.Number}]";
+                    chunks.Add(metadata + Environment.NewLine + chunk);
+                }
+            }
+        }
+
+        private static string NormalizePdfText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            text = text.Replace("\u00AD", string.Empty);
+            text = Regex.Replace(text, @"\s+", " ");
+            return text.Trim();
+        }
+
+        private static bool IsLowValueStandaloneBlock(string text)
+        {
+            if (text.Length > 80)
+                return false;
+
+            string value = text.Trim().Trim(':').ToLowerInvariant();
+            string[] lowValue =
+            {
+                "abstract", "references", "bibliography", "supporting information",
+                "supplementary information", "acknowledgements", "acknowledgments",
+                "keywords", "contents"
+            };
+
+            return lowValue.Contains(value);
+        }
+
+        private static IEnumerable<string> SplitTextWithOverlap(string text, int chunkLen, int overlapLen)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                yield break;
+
+            chunkLen = Math.Max(256, chunkLen);
+            overlapLen = Math.Max(0, Math.Min(overlapLen, chunkLen / 2));
+
+            int start = 0;
+            while (start < text.Length)
+            {
+                int remaining = text.Length - start;
+                int length = Math.Min(chunkLen, remaining);
+                int end = start + length;
+
+                if (end < text.Length)
+                {
+                    int searchStart = start + (int)(length * 0.65);
+                    int sentenceEnd = -1;
+                    for (int i = end - 1; i >= searchStart; i--)
+                    {
+                        char ch = text[i];
+                        if (ch == '.' || ch == '!' || ch == '?' || ch == ';')
+                        {
+                            sentenceEnd = i + 1;
+                            break;
+                        }
+                    }
+                    if (sentenceEnd > start)
+                        end = sentenceEnd;
+                }
+
+                string chunk = text.Substring(start, end - start).Trim();
+                if (chunk.Length >= 80)
+                    yield return chunk;
+
+                if (end >= text.Length)
+                    break;
+
+                int nextStart = Math.Max(start + 1, end - overlapLen);
+                while (nextStart < end && nextStart < text.Length && !char.IsWhiteSpace(text[nextStart]))
+                    nextStart++;
+                start = nextStart;
+            }
+        }
+
+'@
+          $c = $c.Substring(0, $start) + $replacement + $c.Substring($end)
+          Set-Content $path $c -Encoding UTF8
+
+      - name: Patch stale VSTO task panes
+        shell: pwsh
+        run: |
+          $path = "ThisAddIn.cs"
+          $c = Get-Content $path -Raw
+          $old = @'
+        private void RemoveClosedWindowTaskPanes()
+        {
+            for (int i = this.CustomTaskPanes.Count - 1; i >= 0; i--)
+                if (this.CustomTaskPanes[i].Window == null)
+                    this.CustomTaskPanes.RemoveAt(i);
+        }
+'@
+          $new = @'
+        private void RemoveClosedWindowTaskPanes()
+        {
+            for (int i = this.CustomTaskPanes.Count - 1; i >= 0; i--)
+            {
+                bool removePane = false;
+                try
+                {
+                    removePane = this.CustomTaskPanes[i].Window == null;
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    removePane = true;
+                }
+                catch (ObjectDisposedException)
+                {
+                    removePane = true;
+                }
+
+                if (!removePane)
+                    continue;
+
+                try
+                {
+                    this.CustomTaskPanes.RemoveAt(i);
+                }
+                catch (System.Runtime.InteropServices.COMException) { }
+                catch (ObjectDisposedException) { }
+                catch (ArgumentOutOfRangeException) { }
+            }
+        }
+'@
+          if (-not $c.Contains($old)) { throw "Could not locate task pane cleanup method" }
+          $c = $c.Replace($old, $new)
+          Set-Content $path $c -Encoding UTF8
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore packages
+        shell: pwsh
+        run: nuget restore TextForge.sln -NonInteractive
+
+      - name: Build TextCraft Release
+        shell: pwsh
+        run: msbuild TextCraft.csproj /m /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU
+
+      - name: Try building MSI
+        id: msi
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $devenv = Join-Path $vs "Common7\IDE\devenv.com"
+          & $devenv TextForge.sln /Build "Release|Any CPU" /Project OfficeAddInSetup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Collect output
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+          if (Test-Path "bin\Release") { Copy-Item "bin\Release\*" artifact -Recurse -Force }
+          Get-ChildItem "OfficeAddInSetup" -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.msi','.exe' } |
+            Copy-Item -Destination artifact -Force
+          Copy-Item RAGControl.cs artifact\RAGControl.patched.cs
+          Copy-Item ThisAddIn.cs artifact\ThisAddIn.patched.cs
+
+      - name: Upload patched build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TextCraft-patched-scientific-RAG
+          path: artifact
+          if-no-files-found: error
