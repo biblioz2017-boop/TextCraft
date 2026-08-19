@@ -28,7 +28,7 @@ jobs:
             -KeySpec Signature
           "TEXTCRAFT_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Configure TextCraft 1.0.11 signing and version
+      - name: Configure TextCraft 1.0.12 signing and version
         shell: pwsh
         run: |
           $project = 'TextCraft.csproj'
@@ -41,38 +41,44 @@ jobs:
           $xml = [regex]::Replace(
             $xml,
             '<ApplicationVersion>[^<]*</ApplicationVersion>',
-            '<ApplicationVersion>1.0.11.0</ApplicationVersion>'
+            '<ApplicationVersion>1.0.12.0</ApplicationVersion>'
           )
           Set-Content $project $xml -Encoding UTF8
 
           $assemblyInfo = 'Properties/AssemblyInfo.cs'
           $assembly = Get-Content $assemblyInfo -Raw
-          $assembly = [regex]::Replace($assembly, 'AssemblyVersion\("[^"]+"\)', 'AssemblyVersion("1.0.11.0")')
-          $assembly = [regex]::Replace($assembly, 'AssemblyFileVersion\("[^"]+"\)', 'AssemblyFileVersion("1.0.11.0")')
+          $assembly = [regex]::Replace($assembly, 'AssemblyVersion\("[^"]+"\)', 'AssemblyVersion("1.0.12.0")')
+          $assembly = [regex]::Replace($assembly, 'AssemblyFileVersion\("[^"]+"\)', 'AssemblyFileVersion("1.0.12.0")')
           Set-Content $assemblyInfo $assembly -Encoding UTF8
 
-      - name: Apply verified RAG fix
+      - name: Apply Fast RAG fix
         shell: pwsh
-        run: ./ci/apply-v11-fix.ps1
+        run: ./ci/apply-v12-fast-rag.ps1
 
       - name: Build TextCraft
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify vector index fix
+      - name: Verify Fast RAG and vector index fix
         shell: pwsh
         run: |
-          $source = Get-Content 'artifact\RAGControl.patched.cs' -Raw
+          $rag = Get-Content 'artifact\RAGControl.patched.cs' -Raw
           foreach ($marker in @(
             'CreateIndex(filePath)',
             'IndexDocument(filePath, fileContent[i])',
+            'QueryCosineSimilarity(query, 4)',
             '[INDEXING]',
             '[OK]',
             '[NO TEXT]'
           )) {
-            if (-not $source.Contains($marker)) { throw "Missing verified RAG marker: $marker" }
+            if (-not $rag.Contains($marker)) { throw "Missing verified RAG marker: $marker" }
           }
-          Write-Host 'Verified named vector index, checked chunk insertion, and indexing status markers.'
+
+          $model = Get-Content 'ModelProperties.cs' -Raw
+          if (-not $model.Contains('Math.Min(contextWindow, 8192)')) {
+            throw 'Missing 8192-token Ollama context cap.'
+          }
+          Write-Host 'Verified Fast RAG: top-4 chunks/PDF, 8192 Ollama context cap, and named vector indexing.'
 
       - name: Package trust certificate and installer
         shell: pwsh
@@ -100,16 +106,17 @@ jobs:
           '@ | Set-Content -Path 'artifact\Install-TextCraft.cmd' -Encoding ASCII
 
           @'
-          TextCraft patched scientific-RAG build 1.0.11.0
+          TextCraft Fast RAG build 1.0.12.0
 
-          [INDEXING] means embeddings are being created.
-          [OK] is shown only after a named HyperVectorDB index exists and every chunk insertion has succeeded.
-          [NO TEXT] means no usable PDF text was extracted.
+          Fast RAG settings:
+          - Ollama context capped at 8192 tokens.
+          - Retrieval limited to top 4 chunks per PDF.
+          - Named HyperVectorDB index and checked vector insertion retained.
           '@ | Set-Content -Path 'artifact\INSTALL.txt' -Encoding UTF8
 
-      - name: Upload verified build
+      - name: Upload verified Fast RAG build
         uses: actions/upload-artifact@v4
         with:
-          name: TextCraft-1.0.11-verified-RAG
+          name: TextCraft-1.0.12-Fast-RAG
           path: artifact
           if-no-files-found: error
