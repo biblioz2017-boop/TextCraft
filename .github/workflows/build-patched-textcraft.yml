@@ -71,13 +71,16 @@ jobs:
           if (Test-Path 'bin\Release') {
             Copy-Item 'bin\Release' 'artifact\TextCraft-Release' -Recurse -Force
           }
-          if (Test-Path 'OfficeAddInSetup\Release') {
-            Copy-Item 'OfficeAddInSetup\Release' 'artifact\OfficeAddInSetup-Release' -Recurse -Force
+          $installerDir = 'artifact\Installer'
+          New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
+          $installers = Get-ChildItem -Path . -Recurse -File | Where-Object {
+            $_.Extension -ieq '.msi' -or $_.Name -ieq 'setup.exe'
           }
-          if (Test-Path 'OfficeAddInSetup\Debug') {
-            Copy-Item 'OfficeAddInSetup\Debug' 'artifact\OfficeAddInSetup-Debug' -Recurse -Force
+          foreach ($file in $installers) {
+            Copy-Item $file.FullName (Join-Path $installerDir $file.Name) -Force
           }
           "MSI build outcome: ${{ steps.msi.outcome }}" | Out-File 'artifact\BUILD_INFO.txt'
+          "Installer files found: $($installers.Count)" | Add-Content 'artifact\BUILD_INFO.txt'
           Get-ChildItem artifact -Recurse | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Add-Content 'artifact\BUILD_INFO.txt'
 
       - name: Upload patched build
