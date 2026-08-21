@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ClientModel;
 using System.Collections.Generic;
 using System.Linq;
@@ -117,8 +117,50 @@ namespace TextForge
         private void RemoveClosedWindowTaskPanes()
         {
             for (int i = this.CustomTaskPanes.Count - 1; i >= 0; i--)
-                if (this.CustomTaskPanes[i].Window == null)
+            {
+                bool shouldRemove = false;
+
+                try
+                {
+                    // Word can invalidate the underlying COM task pane before the
+                    // DocumentChange event is delivered. Accessing Window on such a
+                    // pane throws instead of returning null.
+                    shouldRemove = this.CustomTaskPanes[i].Window == null;
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    shouldRemove = true;
+                }
+                catch (ObjectDisposedException)
+                {
+                    shouldRemove = true;
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    // The collection changed while Word was closing a window.
+                    continue;
+                }
+
+                if (!shouldRemove)
+                    continue;
+
+                try
+                {
                     this.CustomTaskPanes.RemoveAt(i);
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    // The Office task pane has already been destroyed.
+                }
+                catch (ObjectDisposedException)
+                {
+                    // VSTO already disposed the pane.
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    // The pane was already removed from the collection.
+                }
+            }
         }
 
         private void RemoveClosedWindowObjects()

@@ -1,0 +1,99 @@
+name: Build patched TextCraft
+
+on:
+  push:
+    branches:
+      - chatgpt/taskpane-fix
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore packages
+        shell: pwsh
+        run: nuget restore TextForge.sln
+
+      - name: Locate Visual Studio
+        id: vs
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          if (-not $vs) { throw "Visual Studio installation not found" }
+          "path=$vs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Visual Studio: $vs"
+
+      - name: Create temporary CI signing certificate
+        id: cert
+        shell: powershell
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=TextCraft CI" -CertStoreLocation "Cert:\CurrentUser\My" -KeyExportPolicy Exportable -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(2)
+          $password = ConvertTo-SecureString -String "TextCraftCI" -Force -AsPlainText
+          $pfx = Join-Path $PWD "TextCraft_CI_TemporaryKey.pfx"
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $password | Out-Null
+          "thumbprint=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "pfx=$pfx" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Created temporary signing certificate $($cert.Thumbprint)"
+
+      - name: Override VSTO signing for CI
+        shell: pwsh
+        run: |
+          $thumb = '${{ steps.cert.outputs.thumbprint }}'
+          $project = Get-Content 'TextCraft.csproj' -Raw
+          $project = [regex]::Replace($project, '<ManifestCertificateThumbprint>.*?</ManifestCertificateThumbprint>', "<ManifestCertificateThumbprint>$thumb</ManifestCertificateThumbprint>")
+          $project = [regex]::Replace($project, '<ManifestKeyFile>.*?</ManifestKeyFile>', '<ManifestKeyFile>TextCraft_CI_TemporaryKey.pfx</ManifestKeyFile>')
+          $project = [regex]::Replace($project, '<SignManifests>.*?</SignManifests>', '<SignManifests>true</SignManifests>')
+          Set-Content -Path 'TextCraft.csproj' -Value $project -Encoding UTF8
+          Select-String -Path 'TextCraft.csproj' -Pattern 'SignManifests|ManifestKeyFile|ManifestCertificateThumbprint'
+
+      - name: Build TextCraft Release
+        shell: pwsh
+        run: |
+          $msbuild = Join-Path '${{ steps.vs.outputs.path }}' 'MSBuild\Current\Bin\MSBuild.exe'
+          & $msbuild TextCraft.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build MSI installer
+        shell: pwsh
+        run: |
+          $devenv = Join-Path '${{ steps.vs.outputs.path }}' 'Common7\IDE\devenv.com'
+          & $devenv TextForge.sln /Project OfficeAddInSetup /Build 'Release|Any CPU'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Collect build outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          if (Test-Path 'bin\Release') {
+            Copy-Item 'bin\Release' 'artifact\TextCraft-Release' -Recurse -Force
+          }
+          $installerDir = 'artifact\Installer'
+          New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
+          $installers = @(Get-ChildItem -Path . -Recurse -File | Where-Object {
+            $_.Extension -ieq '.msi' -or $_.Name -ieq 'setup.exe'
+          })
+          foreach ($file in $installers) {
+            Copy-Item $file.FullName (Join-Path $installerDir $file.Name) -Force
+          }
+          if ($installers.Count -eq 0) { throw 'Installer build completed but no MSI/setup.exe was found.' }
+          "Installer files found: $($installers.Count)" | Out-File 'artifact\BUILD_INFO.txt'
+          Get-ChildItem artifact -Recurse | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Add-Content 'artifact\BUILD_INFO.txt'
+
+      - name: Upload patched build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TextCraft-patched-installer
+          path: artifact
+          if-no-files-found: error
+          retention-days: 30
