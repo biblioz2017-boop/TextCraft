@@ -45,17 +45,16 @@ namespace TextForge
             foreach (var comment in comments)
             {
                 List<ChatMessage> chatHistory = new List<ChatMessage>() {
-                    new UserChatMessage($@"{Forge.CultureHelper.GetLocalizedString("[Review] chatHistory #1")}\n""{CommonUtils.SubstringTokens(comment.Range.Text, (int)(ThisAddIn.ContextLength * 0.2))}"""),
+                    new UserChatMessage($@"{Forge.CultureHelper.GetLocalizedString("[Review] chatHistory #1")}\n""{CommonUtils.SubstringTokens(GetCommentText(comment), (int)(ThisAddIn.ContextLength * 0.2))}"""),
                     new UserChatMessage(Forge.CultureHelper.GetLocalizedString("(CommentHandler.cs) [AICommentReplyTask] UserChatMessage #2"))
                 };
                 chatHistory.AddRange(GetCommentMessages(comment));
-                chatHistory.Add(new UserChatMessage(@$"{Forge.CultureHelper.GetLocalizedString("(CommentHandler.cs) [AICommentReplyTask] UserChatMessage #3")}:\n""{comment.Scope.Text}"""));
+                chatHistory.Add(new UserChatMessage(@$"{Forge.CultureHelper.GetLocalizedString("(CommentHandler.cs) [AICommentReplyTask] UserChatMessage #3")}:\n""{comment.Scope.Text ?? string.Empty}"""));
 
+                if (_isDraftingComment) return false; // TODO: is this really necessary?
+                _isDraftingComment = true;
                 try
                 {
-                    if (_isDraftingComment) return false; // TODO: is this really necessary?
-                    _isDraftingComment = true;
-                    
                     await AddComment(
                         comment.Replies,
                         comment.Range,
@@ -68,12 +67,15 @@ namespace TextForge
                         )
                     );
 
-                    _isDraftingComment = false;
                     return true;
                 }
                 catch (OperationCanceledException ex)
                 {
                     CommonUtils.DisplayWarning(ex);
+                }
+                finally
+                {
+                    _isDraftingComment = false;
                 }
             }
             return false;
@@ -87,12 +89,12 @@ namespace TextForge
             {
                 List<ChatMessage> chatHistory = new List<ChatMessage>();
                 chatHistory.AddRange(GetCommentMessagesWithoutMention(comment));
-                chatHistory.Add(new UserChatMessage(@$"{Forge.CultureHelper.GetLocalizedString("(CommentHandler.cs) [AICommentReplyTask] UserChatMessage #3")}:\n""{comment.Scope.Text}"""));
+                chatHistory.Add(new UserChatMessage(@$"{Forge.CultureHelper.GetLocalizedString("(CommentHandler.cs) [AICommentReplyTask] UserChatMessage #3")}:\n""{comment.Scope.Text ?? string.Empty}"""));
+
+                if (_isDraftingComment) return false; // TODO: is this really necessary?
+                _isDraftingComment = true;
                 try
                 {
-                    if (_isDraftingComment) return false; // TODO: is this really necessary?
-                    _isDraftingComment = true;
-                    
                     await AddComment(
                         comment.Replies,
                         comment.Range,
@@ -104,13 +106,16 @@ namespace TextForge
                             doc
                         )
                     );
-                    
-                    _isDraftingComment = false;
+
                     return true;
                 }
                 catch (OperationCanceledException ex)
                 {
                     CommonUtils.DisplayWarning(ex);
+                }
+                finally
+                {
+                    _isDraftingComment = false;
                 }
             }
             return false;
@@ -119,19 +124,24 @@ namespace TextForge
         private static IEnumerable<ChatMessage> GetCommentMessagesWithoutMention(Comment parentComment)
         {
             string modelName = $"@{ThisAddIn.Model}";
+            List<ChatMessage> chatHistory = new List<ChatMessage>();
 
-            List<ChatMessage> chatHistory = new List<ChatMessage>()
-            {
-                new UserChatMessage(GetCleanedCommentText(parentComment, modelName))
-            };
+            string parentText = GetCleanedCommentText(parentComment, modelName);
+            if (!string.IsNullOrWhiteSpace(parentText))
+                chatHistory.Add(new UserChatMessage(parentText));
 
-            Comments childrenComments = parentComment.Replies; // Includes parent comment
+            Comments childrenComments = parentComment.Replies;
             for (int i = 1; i <= childrenComments.Count; i++)
             {
                 var comment = childrenComments[i];
-                string cleanText = GetCleanedCommentText(parentComment, modelName);
+                string cleanText = GetCleanedCommentText(comment, modelName);
+                if (string.IsNullOrWhiteSpace(cleanText))
+                    continue;
+
                 chatHistory.Add(
-                    (i % 2 == 1) ? new AssistantChatMessage(cleanText) : new UserChatMessage(cleanText)
+                    comment.Author == ThisAddIn.Model
+                        ? (ChatMessage)new AssistantChatMessage(cleanText)
+                        : new UserChatMessage(cleanText)
                 );
             }
 
@@ -140,24 +150,72 @@ namespace TextForge
 
         private static string GetCleanedCommentText(Comment c, string modelName)
         {
-            string commentText = c.Range.Text;
-            return commentText.Contains(modelName) ? commentText.Remove(commentText.IndexOf(modelName), modelName.Length).TrimStart() : commentText;
+            string commentText = GetCommentText(c);
+            if (string.IsNullOrWhiteSpace(commentText))
+                return string.Empty;
+
+            return commentText.Contains(modelName)
+                ? commentText.Replace(modelName, string.Empty).Trim()
+                : commentText.Trim();
+        }
+
+        private static string GetCommentText(Comment comment)
+        {
+            if (comment == null)
+                return string.Empty;
+
+            try
+            {
+                return comment.Range?.Text ?? string.Empty;
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                return string.Empty;
+            }
+        }
+
+        private static Comment GetLastMeaningfulReply(Comments replies)
+        {
+            if (replies == null)
+                return null;
+
+            for (int i = replies.Count; i >= 1; i--)
+            {
+                Comment reply = replies[i];
+                if (!string.IsNullOrWhiteSpace(GetCommentText(reply)))
+                    return reply;
+            }
+
+            return null;
         }
 
         // Converts Word Comment object into a list of ChatMessage that can be fed into the OpenAI API
         private static IEnumerable<ChatMessage> GetCommentMessages(Comment parentComment)
         {
-            List<ChatMessage> chatHistory = new List<ChatMessage>()
+            List<ChatMessage> chatHistory = new List<ChatMessage>();
+
+            string parentText = GetCommentText(parentComment);
+            if (!string.IsNullOrWhiteSpace(parentText))
             {
-                new UserChatMessage(parentComment.Range.Text)
-            };
-            
+                chatHistory.Add(
+                    parentComment.Author == ThisAddIn.Model
+                        ? (ChatMessage)new AssistantChatMessage(parentText)
+                        : new UserChatMessage(parentText)
+                );
+            }
+
             Comments childrenComments = parentComment.Replies;
             for (int i = 1; i <= childrenComments.Count; i++)
             {
                 var comment = childrenComments[i];
+                string text = GetCommentText(comment);
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
                 chatHistory.Add(
-                    (i % 2 == 1) ? new AssistantChatMessage(comment.Range.Text) : new UserChatMessage(comment.Range.Text)
+                    comment.Author == ThisAddIn.Model
+                        ? (ChatMessage)new AssistantChatMessage(text)
+                        : new UserChatMessage(text)
                 );
             }
 
@@ -169,11 +227,18 @@ namespace TextForge
         {
             List<Comment> comments = new List<Comment>();
             foreach (Comment c in allComments)
-                if (
-                    c.Ancestor == null &&
-                    ( c.Range.Text.Contains($"@{ThisAddIn.Model}") ? ( (c.Replies.Count == 0) || (c.Replies.Count > 0 && c.Replies[c.Replies.Count].Author != ThisAddIn.Model) ) : AreRepliesUnbalanced(c.Replies) )
-                )
+            {
+                string commentText = GetCommentText(c);
+                if (c.Ancestor != null || string.IsNullOrWhiteSpace(commentText))
+                    continue;
+
+                bool rootMentionNeedsAnswer =
+                    commentText.Contains($"@{ThisAddIn.Model}") &&
+                    (c.Replies.Count == 0 || GetLastMeaningfulReply(c.Replies)?.Author != ThisAddIn.Model);
+
+                if (rootMentionNeedsAnswer || AreRepliesUnbalanced(c.Replies))
                     comments.Add(c);
+            }
 
             return comments;
         }
@@ -189,7 +254,11 @@ namespace TextForge
         {
             int count = 0;
             for (int i = 1; i <= comments.Count; i++)
-                if (comments[i].Range.Text != null && comments[i].Range.Text.Contains(mention)) count++;
+            {
+                string text = GetCommentText(comments[i]);
+                if (!string.IsNullOrWhiteSpace(text) && text.Contains(mention))
+                    count++;
+            }
             return count;
         }
 
@@ -197,7 +266,7 @@ namespace TextForge
         {
             int count = 0;
             for (int i = 1; i <= comments.Count; i++)
-                if (comments[i].Author == author) count++;
+                if (comments[i].Author == author && !string.IsNullOrWhiteSpace(GetCommentText(comments[i]))) count++;
             return count;
         }
 
@@ -206,11 +275,14 @@ namespace TextForge
         {
             List<Comment> comments = new List<Comment>();
             foreach (Comment c in allComments)
-                if (c.Ancestor == null &&
-                    c.Author == ThisAddIn.Model &&
-                    ( c.Replies.Count > 0 && c.Replies[c.Replies.Count].Author != ThisAddIn.Model )
-                    )
+            {
+                if (c.Ancestor != null || c.Author != ThisAddIn.Model)
+                    continue;
+
+                Comment lastReply = GetLastMeaningfulReply(c.Replies);
+                if (lastReply != null && lastReply.Author != ThisAddIn.Model)
                     comments.Add(c);
+            }
 
             return comments;
         }
@@ -235,13 +307,16 @@ namespace TextForge
                             break;
                         foreach (var content in update.ContentUpdate)
                         {
+                            if (string.IsNullOrEmpty(content.Text))
+                                continue;
+
                             commentRange.Collapse(Word.WdCollapseDirection.wdCollapseEnd); // Move to the end of the range
                             commentRange.Text = content.Text; // Append new text
                             commentRange = c.Range.Duplicate; // Update the range to include the new text
                             comment.Append(content.Text);
                         }
                     }
-                } 
+                }
                 finally
                 {
                     Forge.CancelButtonVisibility(false);
