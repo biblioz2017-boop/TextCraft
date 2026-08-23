@@ -3,12 +3,17 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Windows.Forms;
 using OpenAI.Chat;
+using Word = Microsoft.Office.Interop.Word;
 
 namespace TextForge
 {
     public partial class GenerateUserControl : UserControl
     {
         public static readonly CultureLocalizationHelper CultureHelper = new CultureLocalizationHelper("TextForge.GenerateUserControl", typeof(GenerateUserControl).Assembly);
+
+        private const int DefaultLocalContextBefore = 2;
+        private const int DefaultLocalContextAfter = 2;
+        private const int MaxLocalContextParagraphs = 20;
 
         public GenerateUserControl()
         {
@@ -32,11 +37,33 @@ namespace TextForge
                     throw new EmptyTextBoxException(CultureHelper.GetLocalizedString("[GenerateButton_Click] TextBoxEmptyException #1"));
 
                 /*
-                 * So, If the user changes the selection carot in Word after clicking "generate" (bc it takes so long to generate text).
-                 * Then, it won't affect where the text is placed.
+                 * Capture the insertion range before starting the request. This also lets
+                 * us attach the paragraphs immediately around the cursor. For long Word
+                 * documents this local context is more reliable for transitions and
+                 * continuation than document-wide semantic retrieval alone.
                  */
                 var rangeBeforeChat = Globals.ThisAddIn.Application.Selection.Range;
                 var docRange = Globals.ThisAddIn.Application.ActiveDocument.Range();
+                string localCursorContext = GetLocalCursorContext(rangeBeforeChat);
+
+                var userMessages = new List<UserChatMessage>();
+                if (!string.IsNullOrWhiteSpace(localCursorContext))
+                {
+                    userMessages.Add(
+                        new UserChatMessage(
+                            "Local Cursor Context / Локальный контекст вокруг курсора. " +
+                            "This text comes directly from the current Word document immediately around the insertion point. " +
+                            "Prioritize it for transitions, continuation, local coherence, and references such as " +
+                            "\"previous paragraph\" or \"next subsection\":\n\n\"" +
+                            localCursorContext +
+                            "\""
+                        )
+                    );
+                }
+
+                // Keep the real user request last. RAGControl.ProcessInformation() uses
+                // messages.Last() as the semantic-search query for the whole document/RAG.
+                userMessages.Add(new UserChatMessage(textBoxContent));
 
                 // Clear any selected text by the user
                 if (rangeBeforeChat.End - rangeBeforeChat.Start > 0)
@@ -46,7 +73,7 @@ namespace TextForge
                 {
                     var streamingAnswer = RAGControl.AskQuestionForImage(
                         new SystemChatMessage(ThisAddIn.SystemPromptLocalization["(GenerateUserControl.cs) _systemPrompt"]),
-                        new List<UserChatMessage> { new UserChatMessage(textBoxContent) },
+                        userMessages,
                         docRange
                     );
                     await Forge.AddStreamingImageContentToRange(streamingAnswer, rangeBeforeChat);
@@ -55,7 +82,7 @@ namespace TextForge
                 {
                     var streamingAnswer = RAGControl.AskQuestion(
                         new SystemChatMessage(ThisAddIn.SystemPromptLocalization["(GenerateUserControl.cs) _systemPrompt"]),
-                        new List<UserChatMessage> { new UserChatMessage(textBoxContent) },
+                        userMessages,
                         docRange,
                         GetTemperature()
                     );
@@ -76,6 +103,46 @@ namespace TextForge
             {
                 CommonUtils.DisplayError(ex);
             }
+        }
+
+        private static string GetLocalCursorContext(Word.Range anchorRange)
+        {
+            int paragraphsBefore = GetLocalContextSetting(
+                "TEXTCRAFT_LOCAL_CONTEXT_BEFORE",
+                DefaultLocalContextBefore
+            );
+            int paragraphsAfter = GetLocalContextSetting(
+                "TEXTCRAFT_LOCAL_CONTEXT_AFTER",
+                DefaultLocalContextAfter
+            );
+
+            Word.Range localRange = anchorRange.Duplicate;
+
+            // Anchor local context to the start of the current selection/cursor.
+            localRange.Collapse(Word.WdCollapseDirection.wdCollapseStart);
+
+            // Include the whole current paragraph, then neighboring paragraphs.
+            localRange.Expand(Word.WdUnits.wdParagraph);
+            if (paragraphsBefore > 0)
+                localRange.MoveStart(Word.WdUnits.wdParagraph, -paragraphsBefore);
+            if (paragraphsAfter > 0)
+                localRange.MoveEnd(Word.WdUnits.wdParagraph, paragraphsAfter);
+
+            // Prevent an unusually large paragraph from consuming too much model context.
+            int maxTokens = Math.Max(512, (int)(ThisAddIn.ContextLength * 0.20));
+            return CommonUtils.SubstringTokens(localRange.Text, maxTokens);
+        }
+
+        private static int GetLocalContextSetting(string variableName, int defaultValue)
+        {
+            string value =
+                Environment.GetEnvironmentVariable(variableName, EnvironmentVariableTarget.User)
+                ?? Environment.GetEnvironmentVariable(variableName);
+
+            if (int.TryParse(value, out int parsed))
+                return Math.Max(0, Math.Min(parsed, MaxLocalContextParagraphs));
+
+            return defaultValue;
         }
 
         private void PromptTextBox_KeyDown(object sender, KeyEventArgs e)
