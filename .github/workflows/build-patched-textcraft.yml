@@ -2,7 +2,7 @@ name: Build patched TextCraft
 
 on:
   push:
-    branches: [ rag-scientific-pdf-patch ]
+    branches: [ rag-scientific-pdf-patch, local-cursor-context ]
   pull_request:
     branches: [ master ]
   workflow_dispatch:
@@ -246,6 +246,19 @@ jobs:
           $c = $c.Replace($old, $new)
           Set-Content $path $c -Encoding UTF8
 
+      - name: Verify local cursor context source
+        shell: pwsh
+        run: |
+          $generate = Get-Content 'GenerateUserControl.cs' -Raw
+          foreach ($marker in @(
+            'TEXTCRAFT_LOCAL_CONTEXT_BEFORE',
+            'TEXTCRAFT_LOCAL_CONTEXT_AFTER',
+            'GetLocalCursorContext',
+            'Local Cursor Context / Локальный контекст вокруг курсора'
+          )) {
+            if (-not $generate.Contains($marker)) { throw "Missing local-context marker: $marker" }
+          }
+
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
 
@@ -281,10 +294,23 @@ jobs:
             Copy-Item -Destination artifact -Force
           Copy-Item RAGControl.cs artifact\RAGControl.patched.cs
           Copy-Item ThisAddIn.cs artifact\ThisAddIn.patched.cs
+          Copy-Item GenerateUserControl.cs artifact\GenerateUserControl.local-context.cs
+          @'
+TextCraft local cursor context build
+
+Generate now adds local Word context around the insertion point:
+- default 2 paragraphs before
+- current paragraph
+- default 2 paragraphs after
+
+Optional environment variables:
+TEXTCRAFT_LOCAL_CONTEXT_BEFORE
+TEXTCRAFT_LOCAL_CONTEXT_AFTER
+'@ | Set-Content -Path 'artifact\LOCAL_CONTEXT_INFO.txt' -Encoding UTF8
 
       - name: Upload patched build
         uses: actions/upload-artifact@v4
         with:
-          name: TextCraft-patched-scientific-RAG
+          name: TextCraft-local-cursor-context
           path: artifact
           if-no-files-found: error
