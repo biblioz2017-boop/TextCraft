@@ -28,6 +28,7 @@ namespace TextForge
         // Private
         private AboutBox _box;
         private static RibbonGroup _optionsBox;
+        private static RibbonLabel _statusLabel;
 
         private void Forge_Load(object sender, RibbonUIEventArgs e)
         {
@@ -35,6 +36,9 @@ namespace TextForge
             {
                 if (Globals.ThisAddIn.Application.Documents.Count > 0)
                     ThisAddIn.AddTaskPanes(Globals.ThisAddIn.Application.ActiveDocument);
+
+                _statusLabel = this.StatusLabel;
+                SetStatus("● Готово");
 
                 Thread startup = new Thread(InitializeForge);
                 startup.SetApartmentState(ApartmentState.STA);
@@ -61,9 +65,11 @@ namespace TextForge
                 }
                 _box = new AboutBox();
                 _optionsBox = this.OptionsGroup;
+                SetStatus("● Готово");
             }
             catch (Exception ex)
             {
+                SetStatus("● Ошибка");
                 CommonUtils.DisplayError(ex);
             }
         }
@@ -92,15 +98,24 @@ namespace TextForge
         {
             try
             {
+                string selectedModel = GetSelectedItemLabel();
+                ThisAddIn.Model = selectedModel;
+
+                // In the simplified UI the selected model is automatically remembered.
+                Properties.Settings.Default.DefaultModel = selectedModel;
+                Properties.Settings.Default.Save();
+                UpdateCheckbox();
+
+                SetStatus("◌ Модель…");
                 await Task.Run(() =>
                 {
-                    ThisAddIn.Model = GetSelectedItemLabel();
-                    UpdateCheckbox();
-                    ThisAddIn.ContextLength = ModelProperties.GetContextLength(ThisAddIn.Model, ThisAddIn.ModelList); // this request is slow
+                    ThisAddIn.ContextLength = ModelProperties.GetContextLength(ThisAddIn.Model, ThisAddIn.ModelList);
                 });
+                SetStatus("● Готово");
             }
             catch (Exception ex)
             {
+                SetStatus("● Ошибка");
                 CommonUtils.DisplayError(ex);
             }
         }
@@ -169,6 +184,7 @@ namespace TextForge
                 CancelButtonVisibility(false);
                 ThisAddIn.CancellationTokenSource.Cancel();
                 ThisAddIn.CancellationTokenSource = new CancellationTokenSource();
+                SetStatus("● Готово");
             }
             catch (Exception ex)
             {
@@ -237,32 +253,23 @@ namespace TextForge
 
         private static bool ContainsFullStop(string value)
         {
-            // Get the current UI culture language code (e.g., "ar" from "ar-SA")
             string currentLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
-
-            // Define language-specific full stop variants
             var languageSpecificFullStops = new Dictionary<string, char[]>
             {
-                { "hi", new char[] { '।' } },   // Hindi - Devanagari danda
-                { "am", new char[] { '።' } },  // Amharic - Ethiopic full stop
-                { "hy", new char[] { '։' } },  // Armenian - Verjaket
-                { "zh", new char[] { '。' } },  // Chinese - CJK full stop
-                { "ja", new char[] { '。' } },  // Japanese - CJK full stop
-                { "ko", new char[] { '。' } },  // Korean - CJK full stop
-                { "ar", new char[] { '۔' } },  // Arabic - Arabic full stop
+                { "hi", new char[] { '।' } },
+                { "am", new char[] { '።' } },
+                { "hy", new char[] { '։' } },
+                { "zh", new char[] { '。' } },
+                { "ja", new char[] { '。' } },
+                { "ko", new char[] { '。' } },
+                { "ar", new char[] { '۔' } },
             };
 
-            // Check for Latin full stop universally
             if (value.Contains('.'))
-            {
                 return true;
-            }
 
-            // Check for language-specific full stop if applicable
             if (languageSpecificFullStops.TryGetValue(currentLanguage, out char[] specificStops))
-            {
                 return value.IndexOfAny(specificStops) >= 0;
-            }
 
             return false;
         }
@@ -384,7 +391,22 @@ namespace TextForge
 
         public static void CancelButtonVisibility(bool option)
         {
-            _optionsBox.Visible = option;
+            if (_optionsBox != null)
+                _optionsBox.Visible = option;
+            SetStatus(option ? "◌ Думает…" : "● Готово");
+        }
+
+        private static void SetStatus(string value)
+        {
+            try
+            {
+                if (_statusLabel != null)
+                    _statusLabel.Label = value;
+            }
+            catch
+            {
+                // Status is informational only and must never interrupt editing.
+            }
         }
 
         private void UpdateCheckbox()
@@ -397,7 +419,7 @@ namespace TextForge
             var docRange = Globals.ThisAddIn.Application.ActiveDocument.Range();
             List<UserChatMessage> chatHistory = new List<UserChatMessage>()
             {
-                new UserChatMessage($@"{CultureHelper.GetLocalizedString("[Review] chatHistory #1")}\n""{CommonUtils.SubstringTokens(p.Text, (int)(ThisAddIn.ContextLength * 0.2))}"""),
+                new UserChatMessage($@"{CultureHelper.GetLocalizedString("[Review] chatHistory #1")}\n\"{CommonUtils.SubstringTokens(p.Text, (int)(ThisAddIn.ContextLength * 0.2))}\""),
                 new UserChatMessage(userPrompt)
             };
             return RAGControl.AskQuestion(CommentSystemPrompt, chatHistory, docRange, 0.5f, doc);
@@ -407,7 +429,6 @@ namespace TextForge
         {
             if (newContent.ImageBytes != null)
             {
-                // Create a temporary file for the image bytes
                 string tempFilePath = Path.GetTempFileName();
                 File.WriteAllBytes(tempFilePath, newContent.ImageBytes.ToArray());
                 return tempFilePath;
