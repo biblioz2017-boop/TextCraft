@@ -29,9 +29,11 @@ namespace TextForge
 
         private void Localize()
         {
-            // Deliberately small Russian-first UI for the personal scientific-writing build.
+            // Russian-first, task-oriented UI for everyday scientific writing.
             this.ForgeTab.Label = "TextCraft";
             this.ToolsGroup.Label = "Работа с текстом";
+            this.SourcesGroup.Label = "Источники";
+            this.SettingsGroup.Label = "Модель";
 
             this.ImproveButton.Label = "Улучшить";
             this.ImproveButton.SuperTip = "Сделать выделенный текст яснее и лучше связанным, сохранив смысл и факты.";
@@ -42,22 +44,30 @@ namespace TextForge
             this.ShortenButton.Label = "Сократить";
             this.ShortenButton.SuperTip = "Сократить выделенный текст примерно на 20%, сохранив факты, термины и ссылки.";
 
+            this.GrammarButton.Label = "Грамматика";
+            this.GrammarButton.SuperTip = "Исправить орфографию, грамматику, пунктуацию и опечатки без стилистического переписывания.";
+
+            this.ScientificStyleButton.Label = "Научный стиль";
+            this.ScientificStyleButton.SuperTip = "Сделать выделенный текст более строгим и академичным без добавления новых фактов.";
+
             this.ContinueButton.Label = "Продолжить";
             this.ContinueButton.SuperTip = "Продолжить текст в месте курсора, используя ближайшие абзацы и контекст документа.";
 
-            this.GenerateButton.Label = "Спросить по документу";
+            this.GenerateButton.Label = "Спросить";
             this.GenerateButton.SuperTip = "Открыть простое поле запроса к текущему документу. Ответ вставляется в место курсора.";
 
-            this.GrammarButton.Label = "Грамматика и орфография";
-            this.GrammarButton.SuperTip = "Исправить только орфографию, грамматику, пунктуацию и опечатки в выделенном тексте.";
+            this.TranslateMenu.Label = "Перевод";
+            this.TranslateMenu.SuperTip = "Перевести выделенный текст на выбранный язык с сохранением научной терминологии, чисел и ссылок.";
 
-            this.SettingsGroup.Label = "Настройки";
-            this.RAGControlButton.Label = "PDF / RAG";
-            this.RAGControlButton.SuperTip = "Добавить или удалить PDF-файлы для локального поиска по источникам.";
+            this.RAGControlButton.Label = "Литература";
+            this.RAGControlButton.SuperTip = "Добавить или удалить PDF-файлы для локального поиска по литературе и источникам.";
+
+            this.StatusLabel.Label = "● Готово";
             this.ModelListDropDown.Label = "Модель";
-            this.ModelListDropDown.SuperTip = "Выбрать локальную языковую модель TextCraft.";
-            this.DefaultCheckBox.Label = "По умолчанию";
-            this.DefaultCheckBox.SuperTip = "Использовать выбранную модель по умолчанию.";
+            this.ModelListDropDown.SuperTip = "Выбрать локальную языковую модель TextCraft. Выбор автоматически сохраняется.";
+
+            // Kept for backward compatibility with stored settings, but hidden from the simplified UI.
+            this.DefaultCheckBox.Visible = false;
 
             this.InfoGroup.Label = "Информация";
             this.AboutButton.Label = "О программе";
@@ -81,12 +91,25 @@ namespace TextForge
             this.ImproveButton = this.Factory.CreateRibbonButton();
             this.FixButton = this.Factory.CreateRibbonButton();
             this.ShortenButton = this.Factory.CreateRibbonButton();
+            this.GrammarButton = this.Factory.CreateRibbonButton();
+            this.ScientificStyleButton = this.Factory.CreateRibbonButton();
             this.ContinueButton = this.Factory.CreateRibbonButton();
             this.GenerateButton = this.Factory.CreateRibbonButton();
-            this.GrammarButton = this.Factory.CreateRibbonButton();
-            this.SettingsGroup = this.Factory.CreateRibbonGroup();
+            this.TranslateMenu = this.Factory.CreateRibbonMenu();
+            this.TranslateRussianButton = this.Factory.CreateRibbonButton();
+            this.TranslateEnglishButton = this.Factory.CreateRibbonButton();
+            this.TranslateGermanButton = this.Factory.CreateRibbonButton();
+            this.TranslateFrenchButton = this.Factory.CreateRibbonButton();
+            this.TranslateSpanishButton = this.Factory.CreateRibbonButton();
+            this.TranslateItalianButton = this.Factory.CreateRibbonButton();
+            this.TranslatePortugueseButton = this.Factory.CreateRibbonButton();
+            this.TranslateChineseButton = this.Factory.CreateRibbonButton();
+            this.TranslateJapaneseButton = this.Factory.CreateRibbonButton();
+            this.TranslateUkrainianButton = this.Factory.CreateRibbonButton();
+            this.SourcesGroup = this.Factory.CreateRibbonGroup();
             this.RAGControlButton = this.Factory.CreateRibbonButton();
-            this.separator2 = this.Factory.CreateRibbonSeparator();
+            this.SettingsGroup = this.Factory.CreateRibbonGroup();
+            this.StatusLabel = this.Factory.CreateRibbonLabel();
             this.ModelListDropDown = this.Factory.CreateRibbonDropDown();
             this.DefaultCheckBox = this.Factory.CreateRibbonCheckBox();
             this.InfoGroup = this.Factory.CreateRibbonGroup();
@@ -95,6 +118,7 @@ namespace TextForge
             this.CancelButton = this.Factory.CreateRibbonButton();
             this.ForgeTab.SuspendLayout();
             this.ToolsGroup.SuspendLayout();
+            this.SourcesGroup.SuspendLayout();
             this.SettingsGroup.SuspendLayout();
             this.InfoGroup.SuspendLayout();
             this.OptionsGroup.SuspendLayout();
@@ -103,6 +127,7 @@ namespace TextForge
             // ForgeTab
             this.ForgeTab.ControlId.ControlIdType = Microsoft.Office.Tools.Ribbon.RibbonControlIdType.Office;
             this.ForgeTab.Groups.Add(this.ToolsGroup);
+            this.ForgeTab.Groups.Add(this.SourcesGroup);
             this.ForgeTab.Groups.Add(this.SettingsGroup);
             this.ForgeTab.Groups.Add(this.InfoGroup);
             this.ForgeTab.Groups.Add(this.OptionsGroup);
@@ -113,13 +138,16 @@ namespace TextForge
             this.ToolsGroup.Items.Add(this.ImproveButton);
             this.ToolsGroup.Items.Add(this.FixButton);
             this.ToolsGroup.Items.Add(this.ShortenButton);
+            this.ToolsGroup.Items.Add(this.GrammarButton);
+            this.ToolsGroup.Items.Add(this.ScientificStyleButton);
             this.ToolsGroup.Items.Add(this.ContinueButton);
             this.ToolsGroup.Items.Add(this.GenerateButton);
-            this.ToolsGroup.Items.Add(this.GrammarButton);
+            this.ToolsGroup.Items.Add(this.TranslateMenu);
             this.ToolsGroup.Label = "Работа с текстом";
             this.ToolsGroup.Name = "ToolsGroup";
 
             // ImproveButton
+            this.ImproveButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.ImproveButton.Image = global::TextForge.Properties.Resources.counterclockwise_arrows_button_high_contrast;
             this.ImproveButton.Label = "Улучшить";
             this.ImproveButton.Name = "ImproveButton";
@@ -127,6 +155,7 @@ namespace TextForge
             this.ImproveButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ImproveButton_Click);
 
             // FixButton
+            this.FixButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.FixButton.Image = global::TextForge.Properties.Resources.memo_high_contrast;
             this.FixButton.Label = "Исправить";
             this.FixButton.Name = "FixButton";
@@ -134,13 +163,31 @@ namespace TextForge
             this.FixButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.FixButton_Click);
 
             // ShortenButton
+            this.ShortenButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.ShortenButton.Image = global::TextForge.Properties.Resources.clipboard_high_contrast;
             this.ShortenButton.Label = "Сократить";
             this.ShortenButton.Name = "ShortenButton";
             this.ShortenButton.ShowImage = true;
             this.ShortenButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ShortenButton_Click);
 
+            // GrammarButton
+            this.GrammarButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.GrammarButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
+            this.GrammarButton.Label = "Грамматика";
+            this.GrammarButton.Name = "GrammarButton";
+            this.GrammarButton.ShowImage = true;
+            this.GrammarButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.GrammarButton_Click);
+
+            // ScientificStyleButton
+            this.ScientificStyleButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.ScientificStyleButton.Image = global::TextForge.Properties.Resources.clipboard_high_contrast;
+            this.ScientificStyleButton.Label = "Научный стиль";
+            this.ScientificStyleButton.Name = "ScientificStyleButton";
+            this.ScientificStyleButton.ShowImage = true;
+            this.ScientificStyleButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ScientificStyleButton_Click);
+
             // ContinueButton
+            this.ContinueButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.ContinueButton.Image = global::TextForge.Properties.Resources.pen_high_contrast;
             this.ContinueButton.Label = "Продолжить";
             this.ContinueButton.Name = "ContinueButton";
@@ -150,36 +197,62 @@ namespace TextForge
             // GenerateButton / Ask document
             this.GenerateButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.GenerateButton.Image = global::TextForge.Properties.Resources.pen_high_contrast;
-            this.GenerateButton.Label = "Спросить по документу";
+            this.GenerateButton.Label = "Спросить";
             this.GenerateButton.Name = "GenerateButton";
             this.GenerateButton.ShowImage = true;
             this.GenerateButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.GenerateButton_Click);
 
-            // GrammarButton
-            this.GrammarButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
-            this.GrammarButton.Label = "Грамматика и орфография";
-            this.GrammarButton.Name = "GrammarButton";
-            this.GrammarButton.ShowImage = true;
-            this.GrammarButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.GrammarButton_Click);
+            // TranslateMenu
+            this.TranslateMenu.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.TranslateMenu.Image = global::TextForge.Properties.Resources.counterclockwise_arrows_button_high_contrast;
+            this.TranslateMenu.Items.Add(this.TranslateRussianButton);
+            this.TranslateMenu.Items.Add(this.TranslateEnglishButton);
+            this.TranslateMenu.Items.Add(this.TranslateGermanButton);
+            this.TranslateMenu.Items.Add(this.TranslateFrenchButton);
+            this.TranslateMenu.Items.Add(this.TranslateSpanishButton);
+            this.TranslateMenu.Items.Add(this.TranslateItalianButton);
+            this.TranslateMenu.Items.Add(this.TranslatePortugueseButton);
+            this.TranslateMenu.Items.Add(this.TranslateChineseButton);
+            this.TranslateMenu.Items.Add(this.TranslateJapaneseButton);
+            this.TranslateMenu.Items.Add(this.TranslateUkrainianButton);
+            this.TranslateMenu.Label = "Перевод";
+            this.TranslateMenu.Name = "TranslateMenu";
+            this.TranslateMenu.ShowImage = true;
 
-            // SettingsGroup
-            this.SettingsGroup.Items.Add(this.RAGControlButton);
-            this.SettingsGroup.Items.Add(this.separator2);
-            this.SettingsGroup.Items.Add(this.ModelListDropDown);
-            this.SettingsGroup.Items.Add(this.DefaultCheckBox);
-            this.SettingsGroup.Label = "Настройки";
-            this.SettingsGroup.Name = "SettingsGroup";
+            // Translation targets
+            ConfigureTranslationButton(this.TranslateRussianButton, "TranslateRussianButton", "Русский");
+            ConfigureTranslationButton(this.TranslateEnglishButton, "TranslateEnglishButton", "Английский");
+            ConfigureTranslationButton(this.TranslateGermanButton, "TranslateGermanButton", "Немецкий");
+            ConfigureTranslationButton(this.TranslateFrenchButton, "TranslateFrenchButton", "Французский");
+            ConfigureTranslationButton(this.TranslateSpanishButton, "TranslateSpanishButton", "Испанский");
+            ConfigureTranslationButton(this.TranslateItalianButton, "TranslateItalianButton", "Итальянский");
+            ConfigureTranslationButton(this.TranslatePortugueseButton, "TranslatePortugueseButton", "Португальский");
+            ConfigureTranslationButton(this.TranslateChineseButton, "TranslateChineseButton", "Китайский");
+            ConfigureTranslationButton(this.TranslateJapaneseButton, "TranslateJapaneseButton", "Японский");
+            ConfigureTranslationButton(this.TranslateUkrainianButton, "TranslateUkrainianButton", "Украинский");
+
+            // SourcesGroup
+            this.SourcesGroup.Items.Add(this.RAGControlButton);
+            this.SourcesGroup.Label = "Источники";
+            this.SourcesGroup.Name = "SourcesGroup";
 
             // RAGControlButton
             this.RAGControlButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
-            this.RAGControlButton.Image = global::TextForge.Properties.Resources.gear_high_contrast;
-            this.RAGControlButton.Label = "PDF / RAG";
+            this.RAGControlButton.Image = global::TextForge.Properties.Resources.memo_high_contrast;
+            this.RAGControlButton.Label = "Литература";
             this.RAGControlButton.Name = "RAGControlButton";
             this.RAGControlButton.ShowImage = true;
             this.RAGControlButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.RAGControlButton_Click);
 
-            // separator2
-            this.separator2.Name = "separator2";
+            // SettingsGroup
+            this.SettingsGroup.Items.Add(this.StatusLabel);
+            this.SettingsGroup.Items.Add(this.ModelListDropDown);
+            this.SettingsGroup.Label = "Модель";
+            this.SettingsGroup.Name = "SettingsGroup";
+
+            // StatusLabel
+            this.StatusLabel.Label = "● Готово";
+            this.StatusLabel.Name = "StatusLabel";
 
             // ModelListDropDown
             this.ModelListDropDown.Label = "Модель";
@@ -188,9 +261,10 @@ namespace TextForge
             this.ModelListDropDown.SizeString = "XXXXXXXXXXXXXXXXXXXXXXXXX";
             this.ModelListDropDown.SelectionChanged += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ModelListDropDown_SelectionChanged);
 
-            // DefaultCheckBox
+            // DefaultCheckBox: hidden, retained for backward compatibility
             this.DefaultCheckBox.Label = "По умолчанию";
             this.DefaultCheckBox.Name = "DefaultCheckBox";
+            this.DefaultCheckBox.Visible = false;
             this.DefaultCheckBox.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.DefaultCheckBox_Click);
 
             // InfoGroup
@@ -228,6 +302,8 @@ namespace TextForge
             this.ForgeTab.PerformLayout();
             this.ToolsGroup.ResumeLayout(false);
             this.ToolsGroup.PerformLayout();
+            this.SourcesGroup.ResumeLayout(false);
+            this.SourcesGroup.PerformLayout();
             this.SettingsGroup.ResumeLayout(false);
             this.SettingsGroup.PerformLayout();
             this.InfoGroup.ResumeLayout(false);
@@ -235,6 +311,14 @@ namespace TextForge
             this.OptionsGroup.ResumeLayout(false);
             this.OptionsGroup.PerformLayout();
             this.ResumeLayout(false);
+        }
+
+        private void ConfigureTranslationButton(RibbonButton button, string name, string label)
+        {
+            button.Label = label;
+            button.Name = name;
+            button.ShowImage = false;
+            button.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.TranslateButton_Click);
         }
 
         #endregion
@@ -277,6 +361,46 @@ namespace TextForge
                 "Исправь только орфографию, грамматику, пунктуацию, опечатки и явные ошибки согласования. " +
                 "Не переписывай правильные предложения и не меняй стиль без необходимости. " +
                 "Сохрани смысл, факты, числа, имена, термины и ссылки. Верни только исправленный текст.",
+                0.05f
+            );
+        }
+
+        private async void ScientificStyleButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            await RunQuickSelectionAction(
+                "Перепиши выделенный текст в строгом научном академическом стиле. " +
+                "Убери разговорные, оценочные и расплывчатые формулировки, сделай изложение точным, нейтральным и логически связным. " +
+                "Не добавляй новых фактов и не меняй фактический смысл. " +
+                "Сохрани числа, формулы, единицы измерения, имена, специальные термины, цитаты и библиографические ссылки. " +
+                "Верни только итоговый текст.",
+                0.07f
+            );
+        }
+
+        private async void TranslateButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            string targetLanguage;
+            switch (e.Control.Id)
+            {
+                case "TranslateRussianButton": targetLanguage = "русский"; break;
+                case "TranslateEnglishButton": targetLanguage = "английский"; break;
+                case "TranslateGermanButton": targetLanguage = "немецкий"; break;
+                case "TranslateFrenchButton": targetLanguage = "французский"; break;
+                case "TranslateSpanishButton": targetLanguage = "испанский"; break;
+                case "TranslateItalianButton": targetLanguage = "итальянский"; break;
+                case "TranslatePortugueseButton": targetLanguage = "португальский"; break;
+                case "TranslateChineseButton": targetLanguage = "китайский"; break;
+                case "TranslateJapaneseButton": targetLanguage = "японский"; break;
+                case "TranslateUkrainianButton": targetLanguage = "украинский"; break;
+                default: return;
+            }
+
+            await RunQuickSelectionAction(
+                "Переведи выделенный текст на " + targetLanguage + " язык. " +
+                "Определи исходный язык автоматически. Сохрани смысл и научный регистр. " +
+                "Используй общепринятую научную и профессиональную терминологию целевого языка. " +
+                "Не меняй числа, формулы, единицы измерения, DOI, URL, библиографические ссылки и обозначения. " +
+                "Не добавляй комментариев или пояснений. Верни только перевод.",
                 0.05f
             );
         }
@@ -367,12 +491,25 @@ namespace TextForge
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ImproveButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton FixButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ShortenButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton GrammarButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton ScientificStyleButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ContinueButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton GenerateButton;
-        internal Microsoft.Office.Tools.Ribbon.RibbonButton GrammarButton;
-        internal Microsoft.Office.Tools.Ribbon.RibbonGroup SettingsGroup;
+        internal Microsoft.Office.Tools.Ribbon.RibbonMenu TranslateMenu;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateRussianButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateEnglishButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateGermanButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateFrenchButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateSpanishButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateItalianButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslatePortugueseButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateChineseButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateJapaneseButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton TranslateUkrainianButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonGroup SourcesGroup;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton RAGControlButton;
-        internal Microsoft.Office.Tools.Ribbon.RibbonSeparator separator2;
+        internal Microsoft.Office.Tools.Ribbon.RibbonGroup SettingsGroup;
+        internal Microsoft.Office.Tools.Ribbon.RibbonLabel StatusLabel;
         internal Microsoft.Office.Tools.Ribbon.RibbonDropDown ModelListDropDown;
         internal Microsoft.Office.Tools.Ribbon.RibbonCheckBox DefaultCheckBox;
         internal Microsoft.Office.Tools.Ribbon.RibbonGroup InfoGroup;
