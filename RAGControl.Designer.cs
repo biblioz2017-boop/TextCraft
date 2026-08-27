@@ -29,7 +29,7 @@
         private void InitializeComponent()
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(RAGControl));
-            this.FileListBox = new System.Windows.Forms.ListBox();
+            this.FileListBox = new System.Windows.Forms.CheckedListBox();
             this.RemoveButton = new System.Windows.Forms.Button();
             this.AddButton = new System.Windows.Forms.Button();
             this.progressBar1 = new System.Windows.Forms.ProgressBar();
@@ -39,6 +39,7 @@
             // 
             resources.ApplyResources(this.FileListBox, "FileListBox");
             this.FileListBox.AllowDrop = true;
+            this.FileListBox.CheckOnClick = true;
             this.FileListBox.FormattingEnabled = true;
             this.FileListBox.Name = "FileListBox";
             this.FileListBox.Sorted = true;
@@ -79,7 +80,7 @@
 
         #endregion
 
-        private System.Windows.Forms.ListBox FileListBox;
+        private System.Windows.Forms.CheckedListBox FileListBox;
         private System.Windows.Forms.Button RemoveButton;
         private System.Windows.Forms.Button AddButton;
         private System.Windows.Forms.ProgressBar progressBar1;
