@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -103,10 +104,6 @@ namespace TextForge
             _sourceActionsPanel.BringToFront();
             _sourceFilterHintLabel.BringToFront();
 
-            // _fileList is initialized asynchronously by the original control. Poll for
-            // it briefly, then subscribe once. Inclusion state is stored by the real PDF
-            // path, not by the visual row, so label changes such as [CACHE] -> [OK] do not
-            // silently re-enable a source the user explicitly unchecked.
             _sourceBindingTimer = new Timer { Interval = 150 };
             _sourceBindingTimer.Tick += (s, args) =>
             {
@@ -133,8 +130,6 @@ namespace TextForge
                             _includedSourcePaths.Add(addedPath);
                     }
 
-                    // BindingList row replacement is used for [INDEXING]/[CACHE]/[OK]
-                    // statuses. Reapply the path-based inclusion state after any change.
                     BeginInvoke((MethodInvoker)delegate
                     {
                         ApplyStoredChecksToList();
@@ -167,7 +162,6 @@ namespace TextForge
                 }
             }
 
-            // ItemCheck fires before CheckedItems has changed; defer the visual count.
             BeginInvoke((MethodInvoker)delegate { UpdateSourceCountLabel(); });
         }
 
@@ -279,8 +273,6 @@ namespace TextForge
             _invertSourcesButton.Enabled = total > 0;
         }
 
-        // A checked source participates in retrieval. If no PDF is checked we deliberately
-        // return an empty set rather than silently falling back to all sources.
         private KeyValuePair<string, HyperVectorDB.HyperVectorDB>[] GetActiveRagDatabases()
         {
             KeyValuePair<string, HyperVectorDB.HyperVectorDB>[] all = _fileDatabases.ToArray();
@@ -424,11 +416,6 @@ namespace TextForge
         }
     }
 
-    // Word can hand VSTO different RCW objects for the same underlying COM document.
-    // The default Dictionary comparer treats those wrappers as different keys, which
-    // caused ProcessInformation() to throw KeyNotFoundException even though the task
-    // panes for that document were already present. Compare by COM IUnknown identity
-    // instead, so every RCW for the same Word.Document resolves to the same entry.
     public partial class ThisAddIn
     {
         static ThisAddIn()
