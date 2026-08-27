@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using Word = Microsoft.Office.Interop.Word;
 
 namespace TextForge
 {
@@ -417,6 +419,75 @@ namespace TextForge
                     return Page.HasValue
                         ? "[" + Source + ", с. " + Page.Value + "]"
                         : "[" + Source + "]";
+                }
+            }
+        }
+    }
+
+    // Word can hand VSTO different RCW objects for the same underlying COM document.
+    // The default Dictionary comparer treats those wrappers as different keys, which
+    // caused ProcessInformation() to throw KeyNotFoundException even though the task
+    // panes for that document were already present. Compare by COM IUnknown identity
+    // instead, so every RCW for the same Word.Document resolves to the same entry.
+    public partial class ThisAddIn
+    {
+        static ThisAddIn()
+        {
+            _allTaskPanes = new Dictionary<
+                Word.Document,
+                Tuple<Microsoft.Office.Tools.CustomTaskPane, Microsoft.Office.Tools.CustomTaskPane, RAGControl>
+            >(new WordDocumentComIdentityComparer());
+        }
+
+        private sealed class WordDocumentComIdentityComparer : IEqualityComparer<Word.Document>
+        {
+            public bool Equals(Word.Document x, Word.Document y)
+            {
+                if (ReferenceEquals(x, y))
+                    return true;
+                if (x == null || y == null)
+                    return false;
+
+                IntPtr xIdentity = IntPtr.Zero;
+                IntPtr yIdentity = IntPtr.Zero;
+                try
+                {
+                    xIdentity = Marshal.GetIUnknownForObject(x);
+                    yIdentity = Marshal.GetIUnknownForObject(y);
+                    return xIdentity == yIdentity;
+                }
+                catch
+                {
+                    return false;
+                }
+                finally
+                {
+                    if (xIdentity != IntPtr.Zero)
+                        Marshal.Release(xIdentity);
+                    if (yIdentity != IntPtr.Zero)
+                        Marshal.Release(yIdentity);
+                }
+            }
+
+            public int GetHashCode(Word.Document obj)
+            {
+                if (obj == null)
+                    return 0;
+
+                IntPtr identity = IntPtr.Zero;
+                try
+                {
+                    identity = Marshal.GetIUnknownForObject(obj);
+                    return identity.GetHashCode();
+                }
+                catch
+                {
+                    return RuntimeHelpers.GetHashCode(obj);
+                }
+                finally
+                {
+                    if (identity != IntPtr.Zero)
+                        Marshal.Release(identity);
                 }
             }
         }
