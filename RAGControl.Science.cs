@@ -52,22 +52,33 @@ namespace TextForge
 
                 _fileList.ListChanged += (ls, le) =>
                 {
-                    if (le.ListChangedType == System.ComponentModel.ListChangedType.ItemAdded)
-                        BeginInvoke((MethodInvoker)delegate { CheckAllUnspecifiedItems(); });
+                    if (le.ListChangedType != System.ComponentModel.ListChangedType.ItemAdded ||
+                        le.NewIndex < 0 || le.NewIndex >= _fileList.Count)
+                        return;
+
+                    string addedPath = _fileList[le.NewIndex].Value;
+                    BeginInvoke((MethodInvoker)delegate { SetFileChecked(addedPath, true); });
                 };
 
-                BeginInvoke((MethodInvoker)delegate { CheckAllUnspecifiedItems(); });
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    for (int i = 0; i < FileListBox.Items.Count; i++)
+                        FileListBox.SetItemChecked(i, true);
+                });
             };
             _sourceBindingTimer.Start();
         }
 
-        private void CheckAllUnspecifiedItems()
+        private void SetFileChecked(string filePath, bool isChecked)
         {
-            // New literature participates by default. The user can explicitly uncheck it.
             for (int i = 0; i < FileListBox.Items.Count; i++)
             {
-                if (FileListBox.GetItemCheckState(i) == CheckState.Unchecked)
-                    FileListBox.SetItemChecked(i, true);
+                if (FileListBox.Items[i] is KeyValuePair<string, string> file &&
+                    string.Equals(file.Value, filePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    FileListBox.SetItemChecked(i, isChecked);
+                    return;
+                }
             }
         }
 
