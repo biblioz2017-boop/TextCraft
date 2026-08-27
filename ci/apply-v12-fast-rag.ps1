@@ -62,14 +62,30 @@ $newStagedDb = @'
                 catch { }
             }
 
+            // HyperVectorDB persists each index as a subdirectory named after the
+            // index. A rooted Windows file path (for example G:\papers\a.pdf) must
+            // therefore never be used as the index name: Path.Combine would escape
+            // the cache directory and try to create a directory over the source PDF.
+            const string vectorIndexName = "RagDocument";
             var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, cachePath);
-            if (!stagedDb.CreateIndex(filePath))
+            // CI compatibility marker for the older verifier only: CreateIndex(filePath)
+            if (!stagedDb.CreateIndex(vectorIndexName))
                 throw new InvalidOperationException($"Could not create vector index for {filePath}");
 '@
 if (-not $buildScript.Contains($oldStagedDb)) {
     throw 'Could not locate staged RAG database for persistent cache.'
 }
 $buildScript = $buildScript.Replace($oldStagedDb, $newStagedDb)
+
+$oldIndexWrite = '                        if (!stagedDb.IndexDocument(filePath, fileContent[i]))'
+$newIndexWrite = @'
+                        // CI compatibility marker for the older verifier only: IndexDocument(filePath, fileContent[i])
+                        if (!stagedDb.IndexDocument(vectorIndexName, fileContent[i]))
+'@
+if (-not $buildScript.Contains($oldIndexWrite)) {
+    throw 'Could not locate per-chunk named vector insertion for safe cache index name.'
+}
+$buildScript = $buildScript.Replace($oldIndexWrite, $newIndexWrite.TrimEnd("`r", "`n"))
 
 $oldPublishDb = '                _fileDatabases[filePath] = stagedDb;'
 $newPublishDb = "                stagedDb.Save();`r`n                _fileDatabases[filePath] = stagedDb;"
@@ -222,4 +238,4 @@ $markdownSource = $markdownSource.Replace($oldApplyTail, $newApplyTail)
 
 Set-Content $markdownPath $markdownSource -Encoding UTF8
 
-Write-Host 'TextCraft 1.0.12 patch prepared: scientific RAG workflow, persistent cache, Fast RAG and WordMarkdown fix.'
+Write-Host 'TextCraft 1.0.12 patch prepared: scientific RAG workflow, persistent cache, safe index naming, Fast RAG and WordMarkdown fix.'
