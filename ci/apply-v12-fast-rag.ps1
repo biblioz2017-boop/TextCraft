@@ -12,6 +12,72 @@ if (-not $buildScript.Contains($oldQuery)) {
     throw 'Could not locate per-PDF RAG retrieval count for Fast RAG patch.'
 }
 $buildScript = $buildScript.Replace($oldQuery, $newQuery)
+
+# Respect the source subset selected in the Literature pane. The helper lives in
+# RAGControl.Science.cs and returns all databases when source filtering is disabled.
+$oldDatabases = '            var databases = _fileDatabases.ToArray();'
+$newDatabases = '            var databases = GetActiveRagDatabases();'
+if (-not $buildScript.Contains($oldDatabases)) {
+    throw 'Could not locate active RAG database selection.'
+}
+$buildScript = $buildScript.Replace($oldDatabases, $newDatabases)
+
+# Reuse a persistent vector index when the exact same PDF, chunk settings and
+# embedding model were indexed previously.
+$oldIndexStart = @'
+            long indexVersion = Interlocked.Increment(ref _nextIndexVersion);
+            _activeIndexVersions[filePath] = indexVersion;
+
+            List<string> fileContent;
+'@
+$newIndexStart = @'
+            long indexVersion = Interlocked.Increment(ref _nextIndexVersion);
+            _activeIndexVersions[filePath] = indexVersion;
+
+            HyperVectorDB.HyperVectorDB cachedDb;
+            if (TryLoadCachedDatabase(filePath, out cachedDb))
+            {
+                _fileDatabases[filePath] = cachedDb;
+                MarkFileStatus(filePath, $"[CACHE] {Path.GetFileName(filePath)}");
+                return;
+            }
+
+            List<string> fileContent;
+'@
+if (-not $buildScript.Contains($oldIndexStart)) {
+    throw 'Could not locate RAG indexing start for persistent cache.'
+}
+$buildScript = $buildScript.Replace($oldIndexStart, $newIndexStart)
+
+$oldStagedDb = @'
+            var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, Path.GetTempPath());
+            if (!stagedDb.CreateIndex(filePath))
+                throw new InvalidOperationException($"Could not create vector index for {filePath}");
+'@
+$newStagedDb = @'
+            string cachePath = GetPersistentDatabasePath(filePath);
+            if (Directory.Exists(cachePath))
+            {
+                try { Directory.Delete(cachePath, true); }
+                catch { }
+            }
+
+            var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, cachePath);
+            if (!stagedDb.CreateIndex(filePath))
+                throw new InvalidOperationException($"Could not create vector index for {filePath}");
+'@
+if (-not $buildScript.Contains($oldStagedDb)) {
+    throw 'Could not locate staged RAG database for persistent cache.'
+}
+$buildScript = $buildScript.Replace($oldStagedDb, $newStagedDb)
+
+$oldPublishDb = '                _fileDatabases[filePath] = stagedDb;'
+$newPublishDb = "                stagedDb.Save();`r`n                _fileDatabases[filePath] = stagedDb;"
+if (-not $buildScript.Contains($oldPublishDb)) {
+    throw 'Could not locate staged RAG publish step.'
+}
+$buildScript = $buildScript.Replace($oldPublishDb, $newPublishDb)
+
 Set-Content $buildPath $buildScript -Encoding UTF8
 
 $modelPath = 'ModelProperties.cs'
@@ -30,6 +96,48 @@ if (-not $modelSource.Contains($oldContext)) {
 }
 $modelSource = $modelSource.Replace($oldContext, $newContext)
 Set-Content $modelPath $modelSource -Encoding UTF8
+
+# Quick rewrite actions should use Word's native revision tracking so the user can
+# accept or reject AI edits with the standard Review tab.
+$forgeDesignerPath = 'Forge.Designer.cs'
+$forgeDesignerSource = Get-Content $forgeDesignerPath -Raw
+$oldQuickEdit = '                await AnalyzeText(QuickTextSystemPrompt, instruction, temperature);'
+$newQuickEdit = '                await AnalyzeTextWithTrackChanges(QuickTextSystemPrompt, instruction, temperature);'
+if (-not $forgeDesignerSource.Contains($oldQuickEdit)) {
+    throw 'Could not locate quick text action for Track Changes wrapper.'
+}
+$forgeDesignerSource = $forgeDesignerSource.Replace($oldQuickEdit, $newQuickEdit)
+Set-Content $forgeDesignerPath $forgeDesignerSource -Encoding UTF8
+
+# Compile the scientific workflow partial classes without changing the upstream
+# project structure more than necessary.
+$projectPath = 'TextCraft.csproj'
+$projectSource = Get-Content $projectPath -Raw
+$compileAnchor = '    <Compile Include="ModelProperties.cs" />'
+$compileInsert = @'
+    <Compile Include="Forge.Science.cs" />
+    <Compile Include="GenerateUserControl.Science.cs" />
+    <Compile Include="RAGControl.Science.cs" />
+    <Compile Include="ModelProperties.cs" />
+'@
+if (-not $projectSource.Contains($compileAnchor)) {
+    throw 'Could not locate project compile anchor for scientific workflow files.'
+}
+$projectSource = $projectSource.Replace($compileAnchor, $compileInsert)
+Set-Content $projectPath $projectSource -Encoding UTF8
+
+# Use Russian task-pane captions matching the simplified ribbon.
+$thisAddInPath = 'ThisAddIn.cs'
+$thisAddInSource = Get-Content $thisAddInPath -Raw
+$thisAddInSource = $thisAddInSource.Replace(
+    'Globals.ThisAddIn.CustomTaskPanes.Add(new GenerateUserControl(), Forge.CultureHelper.GetLocalizedString("this.GenerateButton.Label"), doc.ActiveWindow)',
+    'Globals.ThisAddIn.CustomTaskPanes.Add(new GenerateUserControl(), "Спросить", doc.ActiveWindow)'
+)
+$thisAddInSource = $thisAddInSource.Replace(
+    'Globals.ThisAddIn.CustomTaskPanes.Add(ragControl, Forge.CultureHelper.GetLocalizedString("this.RAGControlButton.Label"), doc.ActiveWindow)',
+    'Globals.ThisAddIn.CustomTaskPanes.Add(ragControl, "Литература", doc.ActiveWindow)'
+)
+Set-Content $thisAddInPath $thisAddInSource -Encoding UTF8
 
 # Fix WordMarkdown absolute/relative index mixing. Match.Index is already the
 # correct position inside partialMarkdownText; feeding an absolute Word position
@@ -114,4 +222,4 @@ $markdownSource = $markdownSource.Replace($oldApplyTail, $newApplyTail)
 
 Set-Content $markdownPath $markdownSource -Encoding UTF8
 
-Write-Host 'TextCraft 1.0.12 patch prepared: Fast RAG plus WordMarkdown absolute-index fix.'
+Write-Host 'TextCraft 1.0.12 patch prepared: scientific RAG workflow, persistent cache, Fast RAG and WordMarkdown fix.'
