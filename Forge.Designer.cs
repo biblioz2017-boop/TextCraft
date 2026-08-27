@@ -1,4 +1,5 @@
 using System;
+using System.ClientModel;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -29,7 +30,6 @@ namespace TextForge
 
         private void Localize()
         {
-            // Russian-first, task-oriented UI for everyday scientific writing.
             this.ForgeTab.Label = "TextCraft";
             this.ToolsGroup.Label = "Работа с текстом";
             this.SourcesGroup.Label = "Источники";
@@ -44,6 +44,12 @@ namespace TextForge
             this.ShortenButton.Label = "Сократить";
             this.ShortenButton.SuperTip = "Сократить выделенный текст примерно на 20%, сохранив факты, термины и ссылки.";
 
+            this.ExpandButton.Label = "Расширить";
+            this.ExpandButton.SuperTip = "Сделать выделенный текст длиннее за счёт раскрытия уже содержащихся мыслей, без добавления новых фактов.";
+
+            this.KeywordsButton.Label = "Ключевые слова";
+            this.KeywordsButton.SuperTip = "Выделить ключевые термины и словосочетания. Исходный текст сохраняется, список добавляется после него.";
+
             this.GrammarButton.Label = "Грамматика";
             this.GrammarButton.SuperTip = "Исправить орфографию, грамматику, пунктуацию и опечатки без стилистического переписывания.";
 
@@ -54,7 +60,7 @@ namespace TextForge
             this.ContinueButton.SuperTip = "Продолжить текст в месте курсора, используя ближайшие абзацы и контекст документа.";
 
             this.GenerateButton.Label = "Спросить";
-            this.GenerateButton.SuperTip = "Открыть простое поле запроса к текущему документу. Ответ вставляется в место курсора.";
+            this.GenerateButton.SuperTip = "Открыть простое поле запроса к текущему документу и подключенной литературе. Ответ вставляется в место курсора.";
 
             this.TranslateMenu.Label = "Перевод";
             this.TranslateMenu.SuperTip = "Перевести выделенный текст на выбранный язык с сохранением научной терминологии, чисел и ссылок.";
@@ -66,7 +72,6 @@ namespace TextForge
             this.ModelListDropDown.Label = "Модель";
             this.ModelListDropDown.SuperTip = "Выбрать локальную языковую модель TextCraft. Выбор автоматически сохраняется.";
 
-            // Kept for backward compatibility with stored settings, but hidden from the simplified UI.
             this.DefaultCheckBox.Visible = false;
 
             this.InfoGroup.Label = "Информация";
@@ -91,6 +96,8 @@ namespace TextForge
             this.ImproveButton = this.Factory.CreateRibbonButton();
             this.FixButton = this.Factory.CreateRibbonButton();
             this.ShortenButton = this.Factory.CreateRibbonButton();
+            this.ExpandButton = this.Factory.CreateRibbonButton();
+            this.KeywordsButton = this.Factory.CreateRibbonButton();
             this.GrammarButton = this.Factory.CreateRibbonButton();
             this.ScientificStyleButton = this.Factory.CreateRibbonButton();
             this.ContinueButton = this.Factory.CreateRibbonButton();
@@ -138,6 +145,8 @@ namespace TextForge
             this.ToolsGroup.Items.Add(this.ImproveButton);
             this.ToolsGroup.Items.Add(this.FixButton);
             this.ToolsGroup.Items.Add(this.ShortenButton);
+            this.ToolsGroup.Items.Add(this.ExpandButton);
+            this.ToolsGroup.Items.Add(this.KeywordsButton);
             this.ToolsGroup.Items.Add(this.GrammarButton);
             this.ToolsGroup.Items.Add(this.ScientificStyleButton);
             this.ToolsGroup.Items.Add(this.ContinueButton);
@@ -170,6 +179,22 @@ namespace TextForge
             this.ShortenButton.ShowImage = true;
             this.ShortenButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ShortenButton_Click);
 
+            // ExpandButton
+            this.ExpandButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.ExpandButton.Image = global::TextForge.Properties.Resources.pen_high_contrast;
+            this.ExpandButton.Label = "Расширить";
+            this.ExpandButton.Name = "ExpandButton";
+            this.ExpandButton.ShowImage = true;
+            this.ExpandButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ExpandButton_Click);
+
+            // KeywordsButton
+            this.KeywordsButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.KeywordsButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
+            this.KeywordsButton.Label = "Ключевые слова";
+            this.KeywordsButton.Name = "KeywordsButton";
+            this.KeywordsButton.ShowImage = true;
+            this.KeywordsButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.KeywordsButton_Click);
+
             // GrammarButton
             this.GrammarButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.GrammarButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
@@ -194,7 +219,7 @@ namespace TextForge
             this.ContinueButton.ShowImage = true;
             this.ContinueButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ContinueButton_Click);
 
-            // GenerateButton / Ask document
+            // GenerateButton
             this.GenerateButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.GenerateButton.Image = global::TextForge.Properties.Resources.pen_high_contrast;
             this.GenerateButton.Label = "Спросить";
@@ -219,7 +244,6 @@ namespace TextForge
             this.TranslateMenu.Name = "TranslateMenu";
             this.TranslateMenu.ShowImage = true;
 
-            // Translation targets
             ConfigureTranslationButton(this.TranslateRussianButton, "TranslateRussianButton", "Русский");
             ConfigureTranslationButton(this.TranslateEnglishButton, "TranslateEnglishButton", "Английский");
             ConfigureTranslationButton(this.TranslateGermanButton, "TranslateGermanButton", "Немецкий");
@@ -236,7 +260,6 @@ namespace TextForge
             this.SourcesGroup.Label = "Источники";
             this.SourcesGroup.Name = "SourcesGroup";
 
-            // RAGControlButton
             this.RAGControlButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.RAGControlButton.Image = global::TextForge.Properties.Resources.memo_high_contrast;
             this.RAGControlButton.Label = "Литература";
@@ -250,18 +273,15 @@ namespace TextForge
             this.SettingsGroup.Label = "Модель";
             this.SettingsGroup.Name = "SettingsGroup";
 
-            // StatusLabel
             this.StatusLabel.Label = "● Готово";
             this.StatusLabel.Name = "StatusLabel";
 
-            // ModelListDropDown
             this.ModelListDropDown.Label = "Модель";
             this.ModelListDropDown.Name = "ModelListDropDown";
             this.ModelListDropDown.ShowLabel = false;
             this.ModelListDropDown.SizeString = "XXXXXXXXXXXXXXXXXXXXXXXXX";
             this.ModelListDropDown.SelectionChanged += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ModelListDropDown_SelectionChanged);
 
-            // DefaultCheckBox: hidden, retained for backward compatibility
             this.DefaultCheckBox.Label = "По умолчанию";
             this.DefaultCheckBox.Name = "DefaultCheckBox";
             this.DefaultCheckBox.Visible = false;
@@ -272,7 +292,6 @@ namespace TextForge
             this.InfoGroup.Label = "Информация";
             this.InfoGroup.Name = "InfoGroup";
 
-            // AboutButton
             this.AboutButton.Image = global::TextForge.Properties.Resources.information_high_contrast;
             this.AboutButton.Label = "О программе";
             this.AboutButton.Name = "AboutButton";
@@ -285,7 +304,6 @@ namespace TextForge
             this.OptionsGroup.Name = "OptionsGroup";
             this.OptionsGroup.Visible = false;
 
-            // CancelButton
             this.CancelButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.CancelButton.Image = global::TextForge.Properties.Resources.stop_sign_flat;
             this.CancelButton.Label = "Стоп";
@@ -323,8 +341,6 @@ namespace TextForge
 
         #endregion
 
-        // --- Simple direct actions -------------------------------------------------
-
         private async void ImproveButton_Click(object sender, RibbonControlEventArgs e)
         {
             await RunQuickSelectionAction(
@@ -353,6 +369,85 @@ namespace TextForge
                 "Не добавляй новых сведений. Верни только сокращённый текст.",
                 0.08f
             );
+        }
+
+        private async void ExpandButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            await RunQuickSelectionAction(
+                "Расширь выделенный текст примерно на 40–60 процентов. " +
+                "Раскрой уже содержащиеся мысли, уточни логические связи, сделай переходы между предложениями более явными и при необходимости поясни уже названные понятия. " +
+                "Не добавляй новых фактов, чисел, результатов исследований, причинно-следственных утверждений, ссылок или источников, которых нет в исходном тексте. " +
+                "Сохрани научный стиль, терминологию и фактический смысл. Верни только расширенный текст.",
+                0.06f
+            );
+        }
+
+        private async void KeywordsButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                await InsertKeywordsAfterSelectionAsync();
+            }
+            catch (OperationCanceledException ex)
+            {
+                CommonUtils.DisplayWarning(ex);
+            }
+            catch (Exception ex)
+            {
+                CommonUtils.DisplayError(ex);
+            }
+        }
+
+        private static async Task InsertKeywordsAfterSelectionAsync()
+        {
+            Word.Selection selection = Globals.ThisAddIn.Application.Selection;
+            if (selection == null || selection.End <= selection.Start)
+            {
+                MessageBox.Show(
+                    "Сначала выделите текст, из которого нужно извлечь ключевые слова.",
+                    "TextCraft",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
+                return;
+            }
+
+            Word.Range sourceRange = selection.Range.Duplicate;
+            string selectedText = sourceRange.Text ?? string.Empty;
+
+            ChatClient client = new ChatClient(
+                ThisAddIn.Model,
+                new ApiKeyCredential(ThisAddIn.ApiKey),
+                ThisAddIn.ClientOptions
+            );
+
+            var messages = new List<ChatMessage>()
+            {
+                new SystemChatMessage(
+                    "Ты помощник по научному тексту. Извлекай только ключевые термины и устойчивые словосочетания из предоставленного текста. " +
+                    "Не придумывай отсутствующие понятия и не добавляй пояснений."
+                ),
+                new UserChatMessage(
+                    "Извлеки 5–12 ключевых слов или ключевых словосочетаний из текста. " +
+                    "Выбирай наиболее содержательные термины, отражающие предмет, объект, методы, процессы и основные результаты, если они присутствуют. " +
+                    "Сохрани язык исходного текста. Не включай слишком общие слова. " +
+                    "Верни только список через точку с запятой, без нумерации, Markdown и вводных слов.\n\nТекст:\n" + selectedText
+                )
+            };
+
+            var streamingAnswer = client.CompleteChatStreamingAsync(
+                messages,
+                new ChatCompletionOptions() { Temperature = 0.10f },
+                ThisAddIn.CancellationTokenSource.Token
+            );
+
+            Word.Range insertionRange = sourceRange.Duplicate;
+            insertionRange.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
+            insertionRange.Text = Environment.NewLine + "Ключевые слова: ";
+            insertionRange.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
+
+            await AddStreamingChatContentToRange(streamingAnswer, insertionRange);
+            Globals.ThisAddIn.Application.Selection.SetRange(insertionRange.Start, insertionRange.End);
         }
 
         private async void GrammarButton_Click(object sender, RibbonControlEventArgs e)
@@ -491,6 +586,8 @@ namespace TextForge
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ImproveButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton FixButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ShortenButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton ExpandButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton KeywordsButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton GrammarButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ScientificStyleButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ContinueButton;
