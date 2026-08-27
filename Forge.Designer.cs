@@ -1,13 +1,24 @@
-﻿using System.Globalization;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using Microsoft.Office.Tools.Ribbon;
+using OpenAI.Chat;
+using Word = Microsoft.Office.Interop.Word;
 
 namespace TextForge
 {
     partial class Forge : Microsoft.Office.Tools.Ribbon.RibbonBase
     {
-        /// <summary>
-        /// Required designer variable.
-        /// </summary>
         private System.ComponentModel.IContainer components = null;
+
+        private const string QuickTextSystemPrompt =
+            "Ты помощник по работе с текстом в Microsoft Word. " +
+            "Выполняй задачу точно и без лишних пояснений. " +
+            "Сохраняй смысл, факты, числа, имена, термины и ссылки. " +
+            "Не выдумывай отсутствующие сведения. " +
+            "Учитывай стиль исходного текста. " +
+            "Если требуется готовый текст, верни только готовый текст.";
 
         public Forge()
             : base(Globals.Factory.GetRibbonFactory())
@@ -18,64 +29,61 @@ namespace TextForge
 
         private void Localize()
         {
-            CultureLocalizationHelper helper = new CultureLocalizationHelper("TextForge.Forge", typeof(Forge).Assembly);
-            this.AboutButton.Label = helper.GetLocalizedString("this.AboutButton.Label");
-            this.AboutButton.ScreenTip = helper.GetLocalizedString("this.AboutButton.ScreenTip");
-            this.CancelButton.Label = helper.GetLocalizedString("this.CancelButton.Label");
-            this.CancelButton.ScreenTip = helper.GetLocalizedString("this.CancelButton.ScreenTip");
-            this.DefaultCheckBox.Label = helper.GetLocalizedString("this.DefaultCheckBox.Label");
-            this.DefaultCheckBox.SuperTip = helper.GetLocalizedString("this.DefaultCheckBox.SuperTip");
-            this.ForgeTab.Label = helper.GetLocalizedString("this.ForgeTab.Label");
-            this.GenerateButton.Label = helper.GetLocalizedString("this.GenerateButton.Label");
-            this.GenerateButton.SuperTip = helper.GetLocalizedString("this.GenerateButton.SuperTip");
-            this.InfoGroup.Label = helper.GetLocalizedString("this.InfoGroup.Label");
-            this.ModelListDropDown.Label = helper.GetLocalizedString("this.ModelListDropDown.Label");
-            this.ModelListDropDown.SuperTip = helper.GetLocalizedString("this.ModelListDropDown.SuperTip");
-            this.OptionsGroup.Label = helper.GetLocalizedString("this.OptionsGroup.Label");
-            this.ProofreadButton.Label = helper.GetLocalizedString("this.ProofreadButton.Label");
-            this.ProofreadButton.SuperTip = helper.GetLocalizedString("this.ProofreadButton.SuperTip");
-            this.RAGControlButton.Label = helper.GetLocalizedString("this.RAGControlButton.Label");
-            this.RAGControlButton.SuperTip = helper.GetLocalizedString("this.RAGControlButton.SuperTip");
-            this.ReviewButton.Label = helper.GetLocalizedString("this.ReviewButton.Label");
-            this.ReviewButton.SuperTip = helper.GetLocalizedString("this.ReviewButton.SuperTip");
-            this.RewriteButton.Label = helper.GetLocalizedString("this.RewriteButton.Label");
-            this.RewriteButton.SuperTip = helper.GetLocalizedString("this.RewriteButton.SuperTip");
-            this.SettingsGroup.Label = helper.GetLocalizedString("this.SettingsGroup.Label");
-            this.ToolsGroup.Label = helper.GetLocalizedString("this.ToolsGroup.Label");
-            this.WritingToolsGallery.Label = helper.GetLocalizedString("this.WritingToolsGallery.Label");
-            this.WritingToolsGallery.SuperTip = helper.GetLocalizedString("this.WritingToolsGallery.SuperTip");
+            // Deliberately small Russian-first UI for the personal scientific-writing build.
+            this.ForgeTab.Label = "TextCraft";
+            this.ToolsGroup.Label = "Работа с текстом";
+
+            this.ImproveButton.Label = "Улучшить";
+            this.ImproveButton.SuperTip = "Сделать выделенный текст яснее и лучше связанным, сохранив смысл и факты.";
+
+            this.FixButton.Label = "Исправить";
+            this.FixButton.SuperTip = "Исправить неудачные и неясные формулировки с минимальными изменениями.";
+
+            this.ShortenButton.Label = "Сократить";
+            this.ShortenButton.SuperTip = "Сократить выделенный текст примерно на 20%, сохранив факты, термины и ссылки.";
+
+            this.ContinueButton.Label = "Продолжить";
+            this.ContinueButton.SuperTip = "Продолжить текст в месте курсора, используя ближайшие абзацы и контекст документа.";
+
+            this.GenerateButton.Label = "Спросить по документу";
+            this.GenerateButton.SuperTip = "Открыть простое поле запроса к текущему документу. Ответ вставляется в место курсора.";
+
+            this.GrammarButton.Label = "Грамматика и орфография";
+            this.GrammarButton.SuperTip = "Исправить только орфографию, грамматику, пунктуацию и опечатки в выделенном тексте.";
+
+            this.SettingsGroup.Label = "Настройки";
+            this.RAGControlButton.Label = "PDF / RAG";
+            this.RAGControlButton.SuperTip = "Добавить или удалить PDF-файлы для локального поиска по источникам.";
+            this.ModelListDropDown.Label = "Модель";
+            this.ModelListDropDown.SuperTip = "Выбрать локальную языковую модель TextCraft.";
+            this.DefaultCheckBox.Label = "По умолчанию";
+            this.DefaultCheckBox.SuperTip = "Использовать выбранную модель по умолчанию.";
+
+            this.InfoGroup.Label = "Информация";
+            this.AboutButton.Label = "О программе";
+            this.OptionsGroup.Label = "Выполнение";
+            this.CancelButton.Label = "Стоп";
         }
 
-
-        /// <summary> 
-        /// Clean up any resources being used.
-        /// </summary>
-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
-            {
                 components.Dispose();
-            }
             base.Dispose(disposing);
         }
 
         #region Component Designer generated code
 
-        /// <summary>
-        /// Required method for Designer support - do not modify
-        /// the contents of this method with the code editor.
-        /// </summary>
         private void InitializeComponent()
         {
             this.ForgeTab = this.Factory.CreateRibbonTab();
             this.ToolsGroup = this.Factory.CreateRibbonGroup();
+            this.ImproveButton = this.Factory.CreateRibbonButton();
+            this.FixButton = this.Factory.CreateRibbonButton();
+            this.ShortenButton = this.Factory.CreateRibbonButton();
+            this.ContinueButton = this.Factory.CreateRibbonButton();
             this.GenerateButton = this.Factory.CreateRibbonButton();
-            this.separator3 = this.Factory.CreateRibbonSeparator();
-            this.WritingToolsGallery = this.Factory.CreateRibbonGallery();
-            this.ReviewButton = this.Factory.CreateRibbonButton();
-            this.ProofreadButton = this.Factory.CreateRibbonButton();
-            this.RewriteButton = this.Factory.CreateRibbonButton();
+            this.GrammarButton = this.Factory.CreateRibbonButton();
             this.SettingsGroup = this.Factory.CreateRibbonGroup();
             this.RAGControlButton = this.Factory.CreateRibbonButton();
             this.separator2 = this.Factory.CreateRibbonSeparator();
@@ -91,151 +99,127 @@ namespace TextForge
             this.InfoGroup.SuspendLayout();
             this.OptionsGroup.SuspendLayout();
             this.SuspendLayout();
-            // 
+
             // ForgeTab
-            // 
             this.ForgeTab.ControlId.ControlIdType = Microsoft.Office.Tools.Ribbon.RibbonControlIdType.Office;
             this.ForgeTab.Groups.Add(this.ToolsGroup);
             this.ForgeTab.Groups.Add(this.SettingsGroup);
             this.ForgeTab.Groups.Add(this.InfoGroup);
             this.ForgeTab.Groups.Add(this.OptionsGroup);
-            this.ForgeTab.Label = "Craft";
+            this.ForgeTab.Label = "TextCraft";
             this.ForgeTab.Name = "ForgeTab";
-            // 
+
             // ToolsGroup
-            // 
+            this.ToolsGroup.Items.Add(this.ImproveButton);
+            this.ToolsGroup.Items.Add(this.FixButton);
+            this.ToolsGroup.Items.Add(this.ShortenButton);
+            this.ToolsGroup.Items.Add(this.ContinueButton);
             this.ToolsGroup.Items.Add(this.GenerateButton);
-            this.ToolsGroup.Items.Add(this.separator3);
-            this.ToolsGroup.Items.Add(this.WritingToolsGallery);
-            this.ToolsGroup.Label = "Tools";
+            this.ToolsGroup.Items.Add(this.GrammarButton);
+            this.ToolsGroup.Label = "Работа с текстом";
             this.ToolsGroup.Name = "ToolsGroup";
-            // 
-            // GenerateButton
-            // 
+
+            // ImproveButton
+            this.ImproveButton.Image = global::TextForge.Properties.Resources.counterclockwise_arrows_button_high_contrast;
+            this.ImproveButton.Label = "Улучшить";
+            this.ImproveButton.Name = "ImproveButton";
+            this.ImproveButton.ShowImage = true;
+            this.ImproveButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ImproveButton_Click);
+
+            // FixButton
+            this.FixButton.Image = global::TextForge.Properties.Resources.memo_high_contrast;
+            this.FixButton.Label = "Исправить";
+            this.FixButton.Name = "FixButton";
+            this.FixButton.ShowImage = true;
+            this.FixButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.FixButton_Click);
+
+            // ShortenButton
+            this.ShortenButton.Image = global::TextForge.Properties.Resources.clipboard_high_contrast;
+            this.ShortenButton.Label = "Сократить";
+            this.ShortenButton.Name = "ShortenButton";
+            this.ShortenButton.ShowImage = true;
+            this.ShortenButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ShortenButton_Click);
+
+            // ContinueButton
+            this.ContinueButton.Image = global::TextForge.Properties.Resources.pen_high_contrast;
+            this.ContinueButton.Label = "Продолжить";
+            this.ContinueButton.Name = "ContinueButton";
+            this.ContinueButton.ShowImage = true;
+            this.ContinueButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ContinueButton_Click);
+
+            // GenerateButton / Ask document
             this.GenerateButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.GenerateButton.Image = global::TextForge.Properties.Resources.pen_high_contrast;
-            this.GenerateButton.Label = "Generate";
+            this.GenerateButton.Label = "Спросить по документу";
             this.GenerateButton.Name = "GenerateButton";
             this.GenerateButton.ShowImage = true;
-            this.GenerateButton.SuperTip = "Creates tailored responses using the user\'s prompt and the current document\'s con" +
-    "tent.";
             this.GenerateButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.GenerateButton_Click);
-            // 
-            // separator3
-            // 
-            this.separator3.Name = "separator3";
-            // 
-            // WritingToolsGallery
-            // 
-            this.WritingToolsGallery.Buttons.Add(this.ReviewButton);
-            this.WritingToolsGallery.Buttons.Add(this.ProofreadButton);
-            this.WritingToolsGallery.Buttons.Add(this.RewriteButton);
-            this.WritingToolsGallery.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
-            this.WritingToolsGallery.Image = global::TextForge.Properties.Resources.memo_high_contrast;
-            this.WritingToolsGallery.Label = "Writing Tools";
-            this.WritingToolsGallery.Name = "WritingToolsGallery";
-            this.WritingToolsGallery.ShowImage = true;
-            this.WritingToolsGallery.SuperTip = "Enhance your writing with AI-powered tools for grammar, style, and clarity.";
-            this.WritingToolsGallery.ButtonClick += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.WritingToolsGallery_ButtonClick);
-            // 
-            // ReviewButton
-            // 
-            this.ReviewButton.Image = global::TextForge.Properties.Resources.clipboard_high_contrast;
-            this.ReviewButton.Label = "Review";
-            this.ReviewButton.Name = "ReviewButton";
-            this.ReviewButton.ShowImage = true;
-            this.ReviewButton.SuperTip = "Enhance your document with AI-driven comments and suggestions.";
-            // 
-            // ProofreadButton
-            // 
-            this.ProofreadButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
-            this.ProofreadButton.Label = "Proofread";
-            this.ProofreadButton.Name = "ProofreadButton";
-            this.ProofreadButton.ShowImage = true;
-            this.ProofreadButton.SuperTip = "Check for spelling, grammar, and style errors to polish your document.";
-            // 
-            // RewriteButton
-            // 
-            this.RewriteButton.Image = global::TextForge.Properties.Resources.counterclockwise_arrows_button_high_contrast;
-            this.RewriteButton.Label = "Rewrite";
-            this.RewriteButton.Name = "RewriteButton";
-            this.RewriteButton.ShowImage = true;
-            this.RewriteButton.SuperTip = "Revise and enhance your text with AI-powered suggestions.";
-            // 
+
+            // GrammarButton
+            this.GrammarButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
+            this.GrammarButton.Label = "Грамматика и орфография";
+            this.GrammarButton.Name = "GrammarButton";
+            this.GrammarButton.ShowImage = true;
+            this.GrammarButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.GrammarButton_Click);
+
             // SettingsGroup
-            // 
             this.SettingsGroup.Items.Add(this.RAGControlButton);
             this.SettingsGroup.Items.Add(this.separator2);
             this.SettingsGroup.Items.Add(this.ModelListDropDown);
             this.SettingsGroup.Items.Add(this.DefaultCheckBox);
-            this.SettingsGroup.Label = "Settings";
+            this.SettingsGroup.Label = "Настройки";
             this.SettingsGroup.Name = "SettingsGroup";
-            // 
+
             // RAGControlButton
-            // 
             this.RAGControlButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.RAGControlButton.Image = global::TextForge.Properties.Resources.gear_high_contrast;
-            this.RAGControlButton.Label = "RAG Control";
+            this.RAGControlButton.Label = "PDF / RAG";
             this.RAGControlButton.Name = "RAGControlButton";
             this.RAGControlButton.ShowImage = true;
-            this.RAGControlButton.SuperTip = "Manage files within the Retrieval Augmentation Generation (RAG) system.";
             this.RAGControlButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.RAGControlButton_Click);
-            // 
+
             // separator2
-            // 
             this.separator2.Name = "separator2";
-            // 
+
             // ModelListDropDown
-            // 
-            this.ModelListDropDown.Label = "Model List";
+            this.ModelListDropDown.Label = "Модель";
             this.ModelListDropDown.Name = "ModelListDropDown";
             this.ModelListDropDown.ShowLabel = false;
             this.ModelListDropDown.SizeString = "XXXXXXXXXXXXXXXXXXXXXXXXX";
-            this.ModelListDropDown.SuperTip = "Select a language model for use in TextCraft.";
             this.ModelListDropDown.SelectionChanged += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ModelListDropDown_SelectionChanged);
-            // 
+
             // DefaultCheckBox
-            // 
-            this.DefaultCheckBox.Label = "Default";
+            this.DefaultCheckBox.Label = "По умолчанию";
             this.DefaultCheckBox.Name = "DefaultCheckBox";
-            this.DefaultCheckBox.SuperTip = "Set the default language model for TextCraft.";
             this.DefaultCheckBox.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.DefaultCheckBox_Click);
-            // 
+
             // InfoGroup
-            // 
             this.InfoGroup.Items.Add(this.AboutButton);
-            this.InfoGroup.Label = "Info";
+            this.InfoGroup.Label = "Информация";
             this.InfoGroup.Name = "InfoGroup";
-            // 
+
             // AboutButton
-            // 
-            this.AboutButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.AboutButton.Image = global::TextForge.Properties.Resources.information_high_contrast;
-            this.AboutButton.Label = "About";
+            this.AboutButton.Label = "О программе";
             this.AboutButton.Name = "AboutButton";
-            this.AboutButton.ScreenTip = "Provides details about this application.";
             this.AboutButton.ShowImage = true;
             this.AboutButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.AboutButton_Click);
-            // 
+
             // OptionsGroup
-            // 
             this.OptionsGroup.Items.Add(this.CancelButton);
-            this.OptionsGroup.Label = "Options";
+            this.OptionsGroup.Label = "Выполнение";
             this.OptionsGroup.Name = "OptionsGroup";
             this.OptionsGroup.Visible = false;
-            // 
+
             // CancelButton
-            // 
             this.CancelButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.CancelButton.Image = global::TextForge.Properties.Resources.stop_sign_flat;
-            this.CancelButton.Label = "Cancel";
+            this.CancelButton.Label = "Стоп";
             this.CancelButton.Name = "CancelButton";
-            this.CancelButton.ScreenTip = "Halts the text generation process.";
             this.CancelButton.ShowImage = true;
             this.CancelButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.CancelButton_Click);
-            // 
+
             // Forge
-            // 
             this.Name = "Forge";
             this.RibbonType = "Microsoft.Word.Document";
             this.Tabs.Add(this.ForgeTab);
@@ -251,28 +235,150 @@ namespace TextForge
             this.OptionsGroup.ResumeLayout(false);
             this.OptionsGroup.PerformLayout();
             this.ResumeLayout(false);
-
         }
 
         #endregion
 
+        // --- Simple direct actions -------------------------------------------------
+
+        private async void ImproveButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            await RunQuickSelectionAction(
+                "Сделай выделенный текст яснее, естественнее и лучше связанным. " +
+                "Сохрани научный стиль, смысл, факты, числа, термины и ссылки. " +
+                "Не добавляй новых сведений. Верни только улучшенный текст.",
+                0.10f
+            );
+        }
+
+        private async void FixButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            await RunQuickSelectionAction(
+                "Исправь неудачные, тяжёлые или неясные формулировки в выделенном тексте. " +
+                "Делай минимальные изменения. Не меняй смысл, факты, числа, термины и ссылки. " +
+                "Верни только исправленный текст.",
+                0.08f
+            );
+        }
+
+        private async void ShortenButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            await RunQuickSelectionAction(
+                "Сократи выделенный текст примерно на 20 процентов. " +
+                "Убери повторы и лишние слова, но сохрани смысл, факты, числа, термины и ссылки. " +
+                "Не добавляй новых сведений. Верни только сокращённый текст.",
+                0.08f
+            );
+        }
+
+        private async void GrammarButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            await RunQuickSelectionAction(
+                "Исправь только орфографию, грамматику, пунктуацию, опечатки и явные ошибки согласования. " +
+                "Не переписывай правильные предложения и не меняй стиль без необходимости. " +
+                "Сохрани смысл, факты, числа, имена, термины и ссылки. Верни только исправленный текст.",
+                0.05f
+            );
+        }
+
+        private async Task RunQuickSelectionAction(string instruction, float temperature)
+        {
+            try
+            {
+                Word.Selection selection = Globals.ThisAddIn.Application.Selection;
+                if (selection == null || selection.End <= selection.Start)
+                {
+                    MessageBox.Show(
+                        "Сначала выделите текст, который нужно обработать.",
+                        "TextCraft",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                    return;
+                }
+
+                await AnalyzeText(QuickTextSystemPrompt, instruction, temperature);
+            }
+            catch (OperationCanceledException ex)
+            {
+                CommonUtils.DisplayWarning(ex);
+            }
+            catch (Exception ex)
+            {
+                CommonUtils.DisplayError(ex);
+            }
+        }
+
+        private async void ContinueButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                await ContinueAtCursorAsync();
+            }
+            catch (OperationCanceledException ex)
+            {
+                CommonUtils.DisplayWarning(ex);
+            }
+            catch (Exception ex)
+            {
+                CommonUtils.DisplayError(ex);
+            }
+        }
+
+        private static async Task ContinueAtCursorAsync()
+        {
+            Word.Range insertionRange = Globals.ThisAddIn.Application.Selection.Range.Duplicate;
+            insertionRange.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
+
+            Word.Range localRange = insertionRange.Duplicate;
+            localRange.Expand(Word.WdUnits.wdParagraph);
+            localRange.MoveStart(Word.WdUnits.wdParagraph, -2);
+            localRange.MoveEnd(Word.WdUnits.wdParagraph, 2);
+
+            int maxLocalTokens = Math.Max(512, (int)(ThisAddIn.ContextLength * 0.20));
+            string localContext = CommonUtils.SubstringTokens(localRange.Text ?? string.Empty, maxLocalTokens);
+
+            string request =
+                "Продолжи текущую мысль одним коротким абзацем в стиле документа. " +
+                "Опирайся только на факты из текста документа, локального контекста и RAG. " +
+                "Не выдумывай новые факты, числа, ссылки или источники. " +
+                "Если данных для нового утверждения недостаточно, сделай нейтральный логический переход. " +
+                "Верни только текст продолжения.\n\n" +
+                "Текст рядом с курсором:\n" + localContext;
+
+            var messages = new List<ChatMessage>()
+            {
+                new UserChatMessage(request)
+            };
+
+            var answer = RAGControl.AskQuestion(
+                new SystemChatMessage(QuickTextSystemPrompt),
+                messages,
+                Globals.ThisAddIn.Application.ActiveDocument.Range(),
+                0.08f
+            );
+
+            await AddStreamingChatContentToRange(answer, insertionRange);
+            Globals.ThisAddIn.Application.Selection.SetRange(insertionRange.Start, insertionRange.End);
+        }
+
         internal Microsoft.Office.Tools.Ribbon.RibbonTab ForgeTab;
+        internal Microsoft.Office.Tools.Ribbon.RibbonGroup ToolsGroup;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton ImproveButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton FixButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton ShortenButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton ContinueButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton GenerateButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton GrammarButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonGroup SettingsGroup;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton RAGControlButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonSeparator separator2;
         internal Microsoft.Office.Tools.Ribbon.RibbonDropDown ModelListDropDown;
         internal Microsoft.Office.Tools.Ribbon.RibbonCheckBox DefaultCheckBox;
-        internal Microsoft.Office.Tools.Ribbon.RibbonButton RAGControlButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonGroup InfoGroup;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton AboutButton;
-        internal Microsoft.Office.Tools.Ribbon.RibbonGroup ToolsGroup;
-        internal Microsoft.Office.Tools.Ribbon.RibbonSeparator separator2;
-        internal Microsoft.Office.Tools.Ribbon.RibbonButton CancelButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonGroup OptionsGroup;
-        internal Microsoft.Office.Tools.Ribbon.RibbonGallery WritingToolsGallery;
-        private Microsoft.Office.Tools.Ribbon.RibbonButton ReviewButton;
-        private Microsoft.Office.Tools.Ribbon.RibbonButton ProofreadButton;
-        private Microsoft.Office.Tools.Ribbon.RibbonButton RewriteButton;
-        internal Microsoft.Office.Tools.Ribbon.RibbonSeparator separator3;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton CancelButton;
     }
 
     partial class ThisRibbonCollection
