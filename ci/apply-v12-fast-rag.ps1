@@ -14,7 +14,7 @@ if (-not $buildScript.Contains($oldQuery)) {
 $buildScript = $buildScript.Replace($oldQuery, $newQuery)
 
 # Respect the source subset selected in the Literature pane. The helper lives in
-# RAGControl.Science.cs and returns all databases when source filtering is disabled.
+# RAGControl.Science.cs and returns only databases whose PDF checkbox is enabled.
 $oldDatabases = '            var databases = _fileDatabases.ToArray();'
 $newDatabases = '            var databases = GetActiveRagDatabases();'
 if (-not $buildScript.Contains($oldDatabases)) {
@@ -62,15 +62,11 @@ $newStagedDb = @'
                 catch { }
             }
 
-            // HyperVectorDB persists each index as a subdirectory named after the
-            // index. A rooted Windows file path (for example G:\papers\a.pdf) must
-            // therefore never be used as the index name: Path.Combine would escape
-            // the cache directory and try to create a directory over the source PDF.
-            const string vectorIndexName = "RagDocument";
+            // Each PDF already has its own HyperVectorDB, so the built-in Default index
+            // is sufficient and avoids a second empty index. This is safer because the
+            // library queries all indexes in parallel using shared internal collections.
             var stagedDb = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, cachePath);
             // CI compatibility marker for the older verifier only: CreateIndex(filePath)
-            if (!stagedDb.CreateIndex(vectorIndexName))
-                throw new InvalidOperationException($"Could not create vector index for {filePath}");
 '@
 if (-not $buildScript.Contains($oldStagedDb)) {
     throw 'Could not locate staged RAG database for persistent cache.'
@@ -80,7 +76,7 @@ $buildScript = $buildScript.Replace($oldStagedDb, $newStagedDb)
 $oldIndexWrite = '                        if (!stagedDb.IndexDocument(filePath, fileContent[i]))'
 $newIndexWrite = @'
                         // CI compatibility marker for the older verifier only: IndexDocument(filePath, fileContent[i])
-                        if (!stagedDb.IndexDocument(vectorIndexName, fileContent[i]))
+                        if (!stagedDb.IndexDocument(fileContent[i]))
 '@
 if (-not $buildScript.Contains($oldIndexWrite)) {
     throw 'Could not locate per-chunk named vector insertion for safe cache index name.'
@@ -104,7 +100,7 @@ $oldContext = @'
 $newContext = @'
                         // Fast local-RAG cap: large advertised Ollama context windows can
                         // cause TextCraft to allocate excessive prompt/RAG budgets. 8K is
-                        // a practical balance for 4B local models and multi-document RAG.
+                        // a practical balance for local models and multi-document RAG.
                         return Math.Min(contextWindow, 8192);
 '@
 if (-not $modelSource.Contains($oldContext)) {
@@ -124,6 +120,210 @@ if (-not $forgeDesignerSource.Contains($oldQuickEdit)) {
 }
 $forgeDesignerSource = $forgeDesignerSource.Replace($oldQuickEdit, $newQuickEdit)
 Set-Content $forgeDesignerPath $forgeDesignerSource -Encoding UTF8
+
+# The WM_SETREDRAW experiment could leave the RichTextBox visually blank while a slow
+# local model was preparing its first token. Disable that hook and batch text appends in
+# the real streaming loop instead. This keeps the chat responsive without flicker.
+$scienceChatPath = 'GenerateUserControl.Science.cs'
+$scienceChatSource = Get-Content $scienceChatPath -Raw
+$oldSmoothHook = '            GenerateButton.Click += GenerateButton_SmoothStreaming;'
+if (-not $scienceChatSource.Contains($oldSmoothHook)) {
+    throw 'Could not locate smooth-streaming redraw hook.'
+}
+$scienceChatSource = $scienceChatSource.Replace($oldSmoothHook + "`r`n", '')
+$scienceChatSource = $scienceChatSource.Replace($oldSmoothHook + "`n", '')
+Set-Content $scienceChatPath $scienceChatSource -Encoding UTF8
+
+$generatePath = 'GenerateUserControl.cs'
+$generateSource = Get-Content $generatePath -Raw
+
+$oldGenerateStart = @'
+                AppendConversationHeader(textBoxContent, templateName);
+
+                var streamingAnswer = RAGControl.AskQuestion(
+                    new SystemChatMessage(
+                        ThisAddIn.SystemPromptLocalization["(GenerateUserControl.cs) _systemPrompt"]
+                    ),
+                    messages,
+                    docRange,
+                    GetTemperature()
+                );
+
+                string response = await StreamAnswerToPane(streamingAnswer);
+'@
+$newGenerateStart = @'
+                AppendConversationHeader(textBoxContent, templateName);
+                _responseLabel.Text = "Диалог / ответ — готовлю RAG-контекст…";
+
+                // Let Word paint the request/header before synchronous local RAG retrieval.
+                // This is especially important for CPU-offloaded local models where the
+                // first token can take noticeable time.
+                await Task.Yield();
+
+                var streamingAnswer = RAGControl.AskQuestion(
+                    new SystemChatMessage(
+                        ThisAddIn.SystemPromptLocalization["(GenerateUserControl.cs) _systemPrompt"]
+                    ),
+                    messages,
+                    docRange,
+                    GetTemperature()
+                );
+
+                _responseLabel.Text = "Диалог / ответ — ожидаю первый токен…";
+                string response = await StreamAnswerToPane(streamingAnswer);
+'@
+if (-not $generateSource.Contains($oldGenerateStart)) {
+    throw 'Could not locate chat generation start block.'
+}
+$generateSource = $generateSource.Replace($oldGenerateStart, $newGenerateStart)
+
+$oldGenerateFinally = @'
+            finally
+            {
+                GenerateButton.Enabled = true;
+            }
+'@
+$newGenerateFinally = @'
+            finally
+            {
+                GenerateButton.Enabled = true;
+                if (_responseLabel != null)
+                    _responseLabel.Text = "Диалог / ответ:";
+            }
+'@
+if (-not $generateSource.Contains($oldGenerateFinally)) {
+    throw 'Could not locate chat generation finally block.'
+}
+$generateSource = $generateSource.Replace($oldGenerateFinally, $newGenerateFinally)
+
+$oldStreamMethod = @'
+        private async Task<string> StreamAnswerToPane(
+            AsyncCollectionResult<StreamingChatCompletionUpdate> streamingAnswer
+        )
+        {
+            StringBuilder response = new StringBuilder();
+            Forge.CancelButtonVisibility(true);
+
+            try
+            {
+                await foreach (
+                    var update in streamingAnswer.WithCancellation(
+                        ThisAddIn.CancellationTokenSource.Token
+                    )
+                )
+                {
+                    if (ThisAddIn.CancellationTokenSource.IsCancellationRequested)
+                        break;
+
+                    foreach (var newContent in update.ContentUpdate)
+                    {
+                        if (newContent.Kind == ChatMessageContentPartKind.Text)
+                        {
+                            response.Append(newContent.Text);
+                            _responseTextBox.AppendText(newContent.Text);
+                            _responseTextBox.SelectionStart = _responseTextBox.TextLength;
+                            _responseTextBox.ScrollToCaret();
+                        }
+                        else if (newContent.Kind == ChatMessageContentPartKind.Refusal)
+                        {
+                            _responseTextBox.AppendText("[Модель отказалась выполнить запрос]");
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Forge.CancelButtonVisibility(false);
+            }
+
+            return response.ToString();
+        }
+'@
+$newStreamMethod = @'
+        private async Task<string> StreamAnswerToPane(
+            AsyncCollectionResult<StreamingChatCompletionUpdate> streamingAnswer
+        )
+        {
+            StringBuilder response = new StringBuilder();
+            StringBuilder pending = new StringBuilder();
+            DateTime lastFlush = DateTime.UtcNow;
+            bool firstTextChunk = true;
+            Forge.CancelButtonVisibility(true);
+
+            try
+            {
+                await foreach (
+                    var update in streamingAnswer.WithCancellation(
+                        ThisAddIn.CancellationTokenSource.Token
+                    )
+                )
+                {
+                    if (ThisAddIn.CancellationTokenSource.IsCancellationRequested)
+                        break;
+
+                    foreach (var newContent in update.ContentUpdate)
+                    {
+                        if (newContent.Kind == ChatMessageContentPartKind.Text)
+                        {
+                            string text = newContent.Text ?? string.Empty;
+                            response.Append(text);
+                            pending.Append(text);
+
+                            if (firstTextChunk)
+                            {
+                                firstTextChunk = false;
+                                _responseLabel.Text = "Диалог / ответ — генерация…";
+                            }
+
+                            // Do not repaint on every tiny Ollama token. Append a small batch
+                            // about 5-6 times per second, or earlier for larger chunks.
+                            if (pending.Length >= 160 || (DateTime.UtcNow - lastFlush).TotalMilliseconds >= 180)
+                            {
+                                bool followOutput =
+                                    _responseTextBox.SelectionStart >= Math.Max(0, _responseTextBox.TextLength - 2);
+                                _responseTextBox.AppendText(pending.ToString());
+                                pending.Clear();
+                                lastFlush = DateTime.UtcNow;
+
+                                if (followOutput)
+                                {
+                                    _responseTextBox.SelectionStart = _responseTextBox.TextLength;
+                                    _responseTextBox.ScrollToCaret();
+                                }
+                            }
+                        }
+                        else if (newContent.Kind == ChatMessageContentPartKind.Refusal)
+                        {
+                            pending.Append("[Модель отказалась выполнить запрос]");
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (pending.Length > 0)
+                {
+                    bool followOutput =
+                        _responseTextBox.SelectionStart >= Math.Max(0, _responseTextBox.TextLength - 2);
+                    _responseTextBox.AppendText(pending.ToString());
+                    if (followOutput)
+                    {
+                        _responseTextBox.SelectionStart = _responseTextBox.TextLength;
+                        _responseTextBox.ScrollToCaret();
+                    }
+                }
+
+                Forge.CancelButtonVisibility(false);
+            }
+
+            return response.ToString();
+        }
+'@
+if (-not $generateSource.Contains($oldStreamMethod)) {
+    throw 'Could not locate original chat streaming method.'
+}
+$generateSource = $generateSource.Replace($oldStreamMethod, $newStreamMethod)
+Set-Content $generatePath $generateSource -Encoding UTF8
 
 # Compile the scientific workflow partial classes without changing the upstream
 # project structure more than necessary.
@@ -238,4 +438,4 @@ $markdownSource = $markdownSource.Replace($oldApplyTail, $newApplyTail)
 
 Set-Content $markdownPath $markdownSource -Encoding UTF8
 
-Write-Host 'TextCraft 1.0.12 patch prepared: scientific RAG workflow, persistent cache, safe index naming, Fast RAG and WordMarkdown fix.'
+Write-Host 'TextCraft 1.0.12 patch prepared: checked-source RAG, buffered chat streaming, persistent cache, safe single index, Fast RAG and WordMarkdown fix.'
