@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -435,6 +434,29 @@ namespace TextForge
                 if (x == null || y == null)
                     return false;
 
+                // Word can expose the same open document through different RCWs and even
+                // through apartment-specific COM proxies. Compare stable document names
+                // before relying on raw COM identity.
+                string xFullName = string.Empty;
+                string yFullName = string.Empty;
+                try { xFullName = x.FullName ?? string.Empty; } catch { }
+                try { yFullName = y.FullName ?? string.Empty; } catch { }
+
+                if (!string.IsNullOrEmpty(xFullName) &&
+                    !string.IsNullOrEmpty(yFullName) &&
+                    string.Equals(xFullName, yFullName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                string xName = string.Empty;
+                string yName = string.Empty;
+                try { xName = x.Name ?? string.Empty; } catch { }
+                try { yName = y.Name ?? string.Empty; } catch { }
+
+                if (!string.IsNullOrEmpty(xName) &&
+                    !string.IsNullOrEmpty(yName) &&
+                    string.Equals(xName, yName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
                 IntPtr xIdentity = IntPtr.Zero;
                 IntPtr yIdentity = IntPtr.Zero;
                 try
@@ -458,24 +480,12 @@ namespace TextForge
 
             public int GetHashCode(Word.Document obj)
             {
-                if (obj == null)
-                    return 0;
-
-                IntPtr identity = IntPtr.Zero;
-                try
-                {
-                    identity = Marshal.GetIUnknownForObject(obj);
-                    return identity.GetHashCode();
-                }
-                catch
-                {
-                    return RuntimeHelpers.GetHashCode(obj);
-                }
-                finally
-                {
-                    if (identity != IntPtr.Zero)
-                        Marshal.Release(identity);
-                }
+                // Deliberately use one hash bucket. Word may provide different COM proxy
+                // addresses for the same document; a pointer-based hash would prevent the
+                // dictionary from ever calling Equals() and cause KeyNotFoundException.
+                // The number of open Word documents is tiny, so this is inexpensive and
+                // makes lookup correctness more important than hash distribution.
+                return 0;
             }
         }
     }
