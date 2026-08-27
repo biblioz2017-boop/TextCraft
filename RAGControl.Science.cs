@@ -13,6 +13,8 @@ namespace TextForge
     {
         private Label _sourceFilterHintLabel;
         private bool _scienceUiInitialized;
+        private Timer _sourceBindingTimer;
+        private bool _sourceListHooked;
 
         protected override void OnLoad(EventArgs e)
         {
@@ -22,7 +24,6 @@ namespace TextForge
                 return;
 
             _scienceUiInitialized = true;
-
             FileListBox.CheckOnClick = true;
 
             _sourceFilterHintLabel = new Label
@@ -37,31 +38,37 @@ namespace TextForge
             Controls.Add(_sourceFilterHintLabel);
             _sourceFilterHintLabel.BringToFront();
 
-            // Existing items are included by default. Newly added files are checked
-            // by CheckFileForRag(), called immediately after they are added to the list.
-            BeginInvoke((MethodInvoker)delegate
+            // _fileList is initialized asynchronously by the original control. Poll for
+            // it briefly, then subscribe once so every newly added PDF is checked by default.
+            _sourceBindingTimer = new Timer { Interval = 150 };
+            _sourceBindingTimer.Tick += (s, args) =>
             {
-                for (int i = 0; i < FileListBox.Items.Count; i++)
-                    FileListBox.SetItemChecked(i, true);
-            });
+                if (_sourceListHooked || _fileList == null)
+                    return;
+
+                _sourceListHooked = true;
+                _sourceBindingTimer.Stop();
+                _sourceBindingTimer.Dispose();
+
+                _fileList.ListChanged += (ls, le) =>
+                {
+                    if (le.ListChangedType == System.ComponentModel.ListChangedType.ItemAdded)
+                        BeginInvoke((MethodInvoker)delegate { CheckAllUnspecifiedItems(); });
+                };
+
+                BeginInvoke((MethodInvoker)delegate { CheckAllUnspecifiedItems(); });
+            };
+            _sourceBindingTimer.Start();
         }
 
-        // Called from the base AddButton handler after BindingList receives a PDF.
-        // BeginInvoke waits until the data-bound CheckedListBox has materialized the item.
-        private void CheckFileForRag(string filePath)
+        private void CheckAllUnspecifiedItems()
         {
-            BeginInvoke((MethodInvoker)delegate
+            // New literature participates by default. The user can explicitly uncheck it.
+            for (int i = 0; i < FileListBox.Items.Count; i++)
             {
-                for (int i = 0; i < FileListBox.Items.Count; i++)
-                {
-                    if (FileListBox.Items[i] is KeyValuePair<string, string> file &&
-                        string.Equals(file.Value, filePath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        FileListBox.SetItemChecked(i, true);
-                        return;
-                    }
-                }
-            });
+                if (FileListBox.GetItemCheckState(i) == CheckState.Unchecked)
+                    FileListBox.SetItemChecked(i, true);
+            }
         }
 
         // A checked item participates in retrieval. If no PDF is checked we deliberately
@@ -121,9 +128,7 @@ namespace TextForge
                 }
             }
 
-            return evidence
-                .OrderByDescending(item => item.Score)
-                .ToList();
+            return evidence.OrderByDescending(item => item.Score).ToList();
         }
 
         private static RagEvidenceItem ParseEvidence(string filePath, string raw, double score)
