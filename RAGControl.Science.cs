@@ -11,7 +11,6 @@ namespace TextForge
 {
     public partial class RAGControl
     {
-        private CheckBox _useSelectedOnlyCheckBox;
         private Label _sourceFilterHintLabel;
         private bool _scienceUiInitialized;
 
@@ -24,58 +23,71 @@ namespace TextForge
 
             _scienceUiInitialized = true;
 
-            // Ctrl+click/Shift+click lets the user explicitly choose a subset of PDFs.
-            // When the checkbox is off, every indexed PDF remains available to RAG.
-            FileListBox.SelectionMode = SelectionMode.MultiExtended;
+            FileListBox.CheckOnClick = true;
 
             _sourceFilterHintLabel = new Label
             {
-                Text = "Ctrl+клик: выбрать несколько источников",
+                Text = "✓ Отметьте PDF, которые должны участвовать в RAG",
                 Dock = DockStyle.Bottom,
-                Height = 24,
+                Height = 30,
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
                 Padding = new Padding(4, 0, 4, 0)
             };
 
-            _useSelectedOnlyCheckBox = new CheckBox
-            {
-                Text = "Искать только по выделенным PDF (0 = все)",
-                Dock = DockStyle.Bottom,
-                Height = 30,
-                Checked = false,
-                Padding = new Padding(4, 0, 4, 0)
-            };
-
             Controls.Add(_sourceFilterHintLabel);
-            Controls.Add(_useSelectedOnlyCheckBox);
-            _useSelectedOnlyCheckBox.BringToFront();
             _sourceFilterHintLabel.BringToFront();
+
+            // Existing items are included by default. Newly added files are checked
+            // by CheckFileForRag(), called immediately after they are added to the list.
+            BeginInvoke((MethodInvoker)delegate
+            {
+                for (int i = 0; i < FileListBox.Items.Count; i++)
+                    FileListBox.SetItemChecked(i, true);
+            });
         }
 
-        // Called by the patched GetRAGContext implementation. Keeping filtering in a
-        // partial file avoids coupling the scientific UI to the upstream RAG source.
+        // Called from the base AddButton handler after BindingList receives a PDF.
+        // BeginInvoke waits until the data-bound CheckedListBox has materialized the item.
+        private void CheckFileForRag(string filePath)
+        {
+            BeginInvoke((MethodInvoker)delegate
+            {
+                for (int i = 0; i < FileListBox.Items.Count; i++)
+                {
+                    if (FileListBox.Items[i] is KeyValuePair<string, string> file &&
+                        string.Equals(file.Value, filePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        FileListBox.SetItemChecked(i, true);
+                        return;
+                    }
+                }
+            });
+        }
+
+        // A checked item participates in retrieval. If no PDF is checked we deliberately
+        // return an empty set rather than silently falling back to all sources.
         private KeyValuePair<string, HyperVectorDB.HyperVectorDB>[] GetActiveRagDatabases()
         {
             KeyValuePair<string, HyperVectorDB.HyperVectorDB>[] all = _fileDatabases.ToArray();
-            if (all.Length == 0 || _useSelectedOnlyCheckBox == null || !_useSelectedOnlyCheckBox.Checked)
+            if (all.Length == 0)
                 return all;
 
-            HashSet<string> selectedPaths = GetSelectedRagPaths();
-            if (selectedPaths.Count == 0)
-                return all;
+            HashSet<string> checkedPaths = GetCheckedRagPaths();
+            if (checkedPaths.Count == 0)
+                return Array.Empty<KeyValuePair<string, HyperVectorDB.HyperVectorDB>>();
 
             return all
-                .Where(item => selectedPaths.Contains(item.Key))
+                .Where(item => checkedPaths.Contains(item.Key))
                 .ToArray();
         }
 
-        private HashSet<string> GetSelectedRagPaths()
+        private HashSet<string> GetCheckedRagPaths()
         {
             HashSet<string> selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             Action capture = () =>
             {
-                foreach (object item in FileListBox.SelectedItems)
+                foreach (object item in FileListBox.CheckedItems)
                 {
                     if (item is KeyValuePair<string, string> file)
                         selected.Add(file.Value);
@@ -137,8 +149,6 @@ namespace TextForge
             return new RagEvidenceItem(source, page, text, score);
         }
 
-        // Cache key includes path, file metadata, embedding model and chunk settings.
-        // A changed PDF or embedding model therefore receives a new cache directory.
         private static string GetPersistentDatabasePath(string filePath)
         {
             FileInfo info = new FileInfo(filePath);
@@ -184,7 +194,6 @@ namespace TextForge
             }
             catch
             {
-                // A stale or interrupted cache must never prevent normal re-indexing.
                 database = null;
                 return false;
             }
