@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -10,11 +11,17 @@ namespace TextForge
 {
     public partial class GenerateUserControl
     {
+        private const int WM_SETREDRAW = 0x000B;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
         private Panel _evidencePanel;
         private RichTextBox _evidenceTextBox;
         private Button _auditChapterButton;
         private bool _sciencePanelInitialized;
         private int _evidenceRequestVersion;
+        private Timer _chatRedrawTimer;
 
         protected override void OnLoad(EventArgs e)
         {
@@ -28,8 +35,10 @@ namespace TextForge
             AddScientificQuickActions();
             AddEvidencePanel();
 
-            // The main async click handler is registered first by the designer. This
-            // secondary handler captures the query and refreshes evidence after generation.
+            // The original chat appends tiny streaming fragments and calls ScrollToCaret
+            // for every fragment. Batch visual redraws so the text remains stable while
+            // still updating several times per second.
+            GenerateButton.Click += GenerateButton_SmoothStreaming;
             GenerateButton.Click += GenerateButton_EvidenceRefresh;
             _clearButton.Click += (s, args) => _evidenceTextBox.Clear();
         }
@@ -87,7 +96,7 @@ namespace TextForge
 
             Label evidenceLabel = new Label
             {
-                Text = "Доказательства из выбранных PDF:",
+                Text = "Доказательства из отмеченных PDF:",
                 Dock = DockStyle.Top,
                 Height = 22,
                 TextAlign = ContentAlignment.MiddleLeft
@@ -104,6 +113,59 @@ namespace TextForge
 
             Controls.Add(_evidencePanel);
             Controls.SetChildIndex(_evidencePanel, 0);
+        }
+
+        private async void GenerateButton_SmoothStreaming(object sender, EventArgs e)
+        {
+            // The primary async click handler is registered first and disables the button
+            // before yielding to streaming. If it did not start, there is nothing to batch.
+            await Task.Yield();
+            if (GenerateButton.Enabled || _responseTextBox == null || !_responseTextBox.IsHandleCreated)
+                return;
+
+            StopChatRedrawTimer();
+            SetChatRedraw(false);
+
+            _chatRedrawTimer = new Timer { Interval = 220 };
+            _chatRedrawTimer.Tick += (s, args) =>
+            {
+                if (GenerateButton.Enabled)
+                {
+                    StopChatRedrawTimer();
+                    SetChatRedraw(true);
+                    _responseTextBox.Refresh();
+                    return;
+                }
+
+                // One paint for a batch of tokens, then freeze again until the next batch.
+                SetChatRedraw(true);
+                _responseTextBox.Refresh();
+                SetChatRedraw(false);
+            };
+            _chatRedrawTimer.Start();
+        }
+
+        private void StopChatRedrawTimer()
+        {
+            if (_chatRedrawTimer == null)
+                return;
+
+            _chatRedrawTimer.Stop();
+            _chatRedrawTimer.Dispose();
+            _chatRedrawTimer = null;
+        }
+
+        private void SetChatRedraw(bool enabled)
+        {
+            if (_responseTextBox == null || !_responseTextBox.IsHandleCreated)
+                return;
+
+            SendMessage(
+                _responseTextBox.Handle,
+                WM_SETREDRAW,
+                enabled ? new IntPtr(1) : IntPtr.Zero,
+                IntPtr.Zero
+            );
         }
 
         private void AuditChapterButton_Click(object sender, EventArgs e)
@@ -146,9 +208,7 @@ namespace TextForge
             int requestVersion = ++_evidenceRequestVersion;
             _evidenceTextBox.Text = "Поиск подтверждающих фрагментов…";
 
-            // The primary async handler disables the button while the model streams.
-            // Wait until it finishes so evidence and the visible answer belong to one query.
-            for (int i = 0; i < 120 && !GenerateButton.Enabled; i++)
+            for (int i = 0; i < 240 && !GenerateButton.Enabled; i++)
                 await Task.Delay(250);
 
             if (requestVersion != _evidenceRequestVersion)
@@ -156,14 +216,13 @@ namespace TextForge
 
             try
             {
-                Word.Document doc = Globals.ThisAddIn.Application.ActiveDocument;
-                if (!ThisAddIn.AllTaskPanes.TryGetValue(doc, out var panes))
+                RAGControl rag;
+                if (!TryGetRagControlForActiveDocument(out rag))
                 {
-                    _evidenceTextBox.Text = "RAG-панель для документа не найдена.";
+                    _evidenceTextBox.Text = "Не удалось связать чат с панелью литературы этого документа.";
                     return;
                 }
 
-                RAGControl rag = panes.Item3;
                 List<RAGControl.RagEvidenceItem> evidence = await Task.Run(
                     () => rag.GetRAGEvidence(query, 2)
                 );
@@ -179,13 +238,63 @@ namespace TextForge
             }
         }
 
+        private static bool TryGetRagControlForActiveDocument(out RAGControl rag)
+        {
+            rag = null;
+            Word.Document active = Globals.ThisAddIn.Application.ActiveDocument;
+            if (active == null)
+                return false;
+
+            if (ThisAddIn.AllTaskPanes.TryGetValue(active, out var direct))
+            {
+                rag = direct.Item3;
+                return rag != null;
+            }
+
+            string activeFullName = string.Empty;
+            string activeName = string.Empty;
+            try { activeFullName = active.FullName ?? string.Empty; } catch { }
+            try { activeName = active.Name ?? string.Empty; } catch { }
+
+            foreach (var entry in ThisAddIn.AllTaskPanes)
+            {
+                try
+                {
+                    string candidateFullName = entry.Key.FullName ?? string.Empty;
+                    string candidateName = entry.Key.Name ?? string.Empty;
+                    if ((!string.IsNullOrEmpty(activeFullName) && string.Equals(candidateFullName, activeFullName, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(activeName) && string.Equals(candidateName, activeName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        rag = entry.Value.Item3;
+                        return rag != null;
+                    }
+                }
+                catch
+                {
+                    // Closed/stale COM document entry; continue with the next pane.
+                }
+            }
+
+            // Common case: one open document but COM returned a different RCW proxy.
+            if (ThisAddIn.AllTaskPanes.Count == 1)
+            {
+                foreach (var entry in ThisAddIn.AllTaskPanes)
+                {
+                    rag = entry.Value.Item3;
+                    return rag != null;
+                }
+            }
+
+            return false;
+        }
+
         private void RenderEvidence(List<RAGControl.RagEvidenceItem> evidence)
         {
             if (evidence == null || evidence.Count == 0)
             {
                 _evidenceTextBox.Text =
-                    "Подходящие фрагменты в активных PDF не найдены. " +
-                    "Если включен режим 'только выделенные PDF', проверьте выбор источников.";
+                    "Подходящие фрагменты в отмеченных PDF не найдены. " +
+                    "Проверьте, что нужные источники отмечены галочками в панели «Литература».";
                 return;
             }
 
