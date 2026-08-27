@@ -12,9 +12,18 @@ namespace TextForge
     public partial class RAGControl
     {
         private Label _sourceFilterHintLabel;
+        private Label _sourceCountLabel;
+        private FlowLayoutPanel _sourceActionsPanel;
+        private Button _checkAllSourcesButton;
+        private Button _uncheckAllSourcesButton;
+        private Button _invertSourcesButton;
         private bool _scienceUiInitialized;
         private Timer _sourceBindingTimer;
         private bool _sourceListHooked;
+        private bool _applyingChecks;
+        private readonly object _includedSourcesLock = new object();
+        private readonly HashSet<string> _includedSourcePaths =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         protected override void OnLoad(EventArgs e)
         {
@@ -25,21 +34,77 @@ namespace TextForge
 
             _scienceUiInitialized = true;
             FileListBox.CheckOnClick = true;
+            FileListBox.ItemCheck += FileListBox_ItemCheck;
 
             _sourceFilterHintLabel = new Label
             {
-                Text = "✓ Отметьте PDF, которые должны участвовать в RAG",
+                Text = "✓ Галочка = источник участвует в RAG",
                 Dock = DockStyle.Bottom,
-                Height = 30,
+                Height = 24,
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
                 Padding = new Padding(4, 0, 4, 0)
             };
 
+            _sourceActionsPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 58,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Padding = new Padding(3, 2, 3, 2)
+            };
+
+            _checkAllSourcesButton = new Button
+            {
+                Text = "Все",
+                AutoSize = true,
+                Height = 25,
+                Margin = new Padding(1)
+            };
+            _checkAllSourcesButton.Click += (s, args) => SetAllSourceChecks(true);
+
+            _uncheckAllSourcesButton = new Button
+            {
+                Text = "Снять все",
+                AutoSize = true,
+                Height = 25,
+                Margin = new Padding(1)
+            };
+            _uncheckAllSourcesButton.Click += (s, args) => SetAllSourceChecks(false);
+
+            _invertSourcesButton = new Button
+            {
+                Text = "Инвертировать",
+                AutoSize = true,
+                Height = 25,
+                Margin = new Padding(1)
+            };
+            _invertSourcesButton.Click += (s, args) => InvertSourceChecks();
+
+            _sourceCountLabel = new Label
+            {
+                Text = "В RAG: 0 из 0",
+                AutoSize = true,
+                Height = 25,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                Padding = new Padding(5, 5, 0, 0),
+                Margin = new Padding(1)
+            };
+
+            _sourceActionsPanel.Controls.Add(_checkAllSourcesButton);
+            _sourceActionsPanel.Controls.Add(_uncheckAllSourcesButton);
+            _sourceActionsPanel.Controls.Add(_invertSourcesButton);
+            _sourceActionsPanel.Controls.Add(_sourceCountLabel);
+
+            Controls.Add(_sourceActionsPanel);
             Controls.Add(_sourceFilterHintLabel);
+            _sourceActionsPanel.BringToFront();
             _sourceFilterHintLabel.BringToFront();
 
             // _fileList is initialized asynchronously by the original control. Poll for
-            // it briefly, then subscribe once so every newly added PDF is checked by default.
+            // it briefly, then subscribe once. Inclusion state is stored by the real PDF
+            // path, not by the visual row, so label changes such as [CACHE] -> [OK] do not
+            // silently re-enable a source the user explicitly unchecked.
             _sourceBindingTimer = new Timer { Interval = 150 };
             _sourceBindingTimer.Tick += (s, args) =>
             {
@@ -50,39 +115,169 @@ namespace TextForge
                 _sourceBindingTimer.Stop();
                 _sourceBindingTimer.Dispose();
 
+                lock (_includedSourcesLock)
+                {
+                    foreach (KeyValuePair<string, string> file in _fileList)
+                        _includedSourcePaths.Add(file.Value);
+                }
+
                 _fileList.ListChanged += (ls, le) =>
                 {
-                    if (le.ListChangedType != System.ComponentModel.ListChangedType.ItemAdded ||
-                        le.NewIndex < 0 || le.NewIndex >= _fileList.Count)
-                        return;
+                    if (le.ListChangedType == System.ComponentModel.ListChangedType.ItemAdded &&
+                        le.NewIndex >= 0 && le.NewIndex < _fileList.Count)
+                    {
+                        string addedPath = _fileList[le.NewIndex].Value;
+                        lock (_includedSourcesLock)
+                            _includedSourcePaths.Add(addedPath);
+                    }
 
-                    string addedPath = _fileList[le.NewIndex].Value;
-                    BeginInvoke((MethodInvoker)delegate { SetFileChecked(addedPath, true); });
+                    // BindingList row replacement is used for [INDEXING]/[CACHE]/[OK]
+                    // statuses. Reapply the path-based inclusion state after any change.
+                    BeginInvoke((MethodInvoker)delegate
+                    {
+                        ApplyStoredChecksToList();
+                        UpdateSourceCountLabel();
+                    });
                 };
 
                 BeginInvoke((MethodInvoker)delegate
                 {
-                    for (int i = 0; i < FileListBox.Items.Count; i++)
-                        FileListBox.SetItemChecked(i, true);
+                    ApplyStoredChecksToList();
+                    UpdateSourceCountLabel();
                 });
             };
             _sourceBindingTimer.Start();
         }
 
-        private void SetFileChecked(string filePath, bool isChecked)
+        private void FileListBox_ItemCheck(object sender, ItemCheckEventArgs e)
         {
-            for (int i = 0; i < FileListBox.Items.Count; i++)
+            if (_applyingChecks || e.Index < 0 || e.Index >= FileListBox.Items.Count)
+                return;
+
+            if (FileListBox.Items[e.Index] is KeyValuePair<string, string> file)
             {
-                if (FileListBox.Items[i] is KeyValuePair<string, string> file &&
-                    string.Equals(file.Value, filePath, StringComparison.OrdinalIgnoreCase))
+                lock (_includedSourcesLock)
                 {
-                    FileListBox.SetItemChecked(i, isChecked);
-                    return;
+                    if (e.NewValue == CheckState.Checked)
+                        _includedSourcePaths.Add(file.Value);
+                    else
+                        _includedSourcePaths.Remove(file.Value);
                 }
+            }
+
+            // ItemCheck fires before CheckedItems has changed; defer the visual count.
+            BeginInvoke((MethodInvoker)delegate { UpdateSourceCountLabel(); });
+        }
+
+        private void SetAllSourceChecks(bool isChecked)
+        {
+            _applyingChecks = true;
+            try
+            {
+                lock (_includedSourcesLock)
+                {
+                    if (!isChecked)
+                    {
+                        _includedSourcePaths.Clear();
+                    }
+                    else
+                    {
+                        foreach (object item in FileListBox.Items)
+                        {
+                            if (item is KeyValuePair<string, string> file)
+                                _includedSourcePaths.Add(file.Value);
+                        }
+                    }
+                }
+
+                for (int i = 0; i < FileListBox.Items.Count; i++)
+                    FileListBox.SetItemChecked(i, isChecked);
+            }
+            finally
+            {
+                _applyingChecks = false;
+            }
+
+            UpdateSourceCountLabel();
+        }
+
+        private void InvertSourceChecks()
+        {
+            _applyingChecks = true;
+            try
+            {
+                for (int i = 0; i < FileListBox.Items.Count; i++)
+                {
+                    bool newState = !FileListBox.GetItemChecked(i);
+                    if (FileListBox.Items[i] is KeyValuePair<string, string> file)
+                    {
+                        lock (_includedSourcesLock)
+                        {
+                            if (newState)
+                                _includedSourcePaths.Add(file.Value);
+                            else
+                                _includedSourcePaths.Remove(file.Value);
+                        }
+                    }
+                    FileListBox.SetItemChecked(i, newState);
+                }
+            }
+            finally
+            {
+                _applyingChecks = false;
+            }
+
+            UpdateSourceCountLabel();
+        }
+
+        private void ApplyStoredChecksToList()
+        {
+            if (FileListBox == null || FileListBox.IsDisposed)
+                return;
+
+            _applyingChecks = true;
+            try
+            {
+                for (int i = 0; i < FileListBox.Items.Count; i++)
+                {
+                    if (!(FileListBox.Items[i] is KeyValuePair<string, string> file))
+                        continue;
+
+                    bool isIncluded;
+                    lock (_includedSourcesLock)
+                        isIncluded = _includedSourcePaths.Contains(file.Value);
+
+                    if (FileListBox.GetItemChecked(i) != isIncluded)
+                        FileListBox.SetItemChecked(i, isIncluded);
+                }
+            }
+            finally
+            {
+                _applyingChecks = false;
             }
         }
 
-        // A checked item participates in retrieval. If no PDF is checked we deliberately
+        private void UpdateSourceCountLabel()
+        {
+            if (_sourceCountLabel == null || _sourceCountLabel.IsDisposed)
+                return;
+
+            int total = FileListBox == null ? 0 : FileListBox.Items.Count;
+            int included = 0;
+
+            lock (_includedSourcesLock)
+            {
+                if (_fileList != null)
+                    included = _fileList.Count(file => _includedSourcePaths.Contains(file.Value));
+            }
+
+            _sourceCountLabel.Text = "В RAG: " + included + " из " + total;
+            _checkAllSourcesButton.Enabled = total > 0 && included < total;
+            _uncheckAllSourcesButton.Enabled = included > 0;
+            _invertSourcesButton.Enabled = total > 0;
+        }
+
+        // A checked source participates in retrieval. If no PDF is checked we deliberately
         // return an empty set rather than silently falling back to all sources.
         private KeyValuePair<string, HyperVectorDB.HyperVectorDB>[] GetActiveRagDatabases()
         {
@@ -101,23 +296,8 @@ namespace TextForge
 
         private HashSet<string> GetCheckedRagPaths()
         {
-            HashSet<string> selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            Action capture = () =>
-            {
-                foreach (object item in FileListBox.CheckedItems)
-                {
-                    if (item is KeyValuePair<string, string> file)
-                        selected.Add(file.Value);
-                }
-            };
-
-            if (FileListBox.InvokeRequired)
-                FileListBox.Invoke((MethodInvoker)delegate { capture(); });
-            else
-                capture();
-
-            return selected;
+            lock (_includedSourcesLock)
+                return new HashSet<string>(_includedSourcePaths, StringComparer.OrdinalIgnoreCase);
         }
 
         public List<RagEvidenceItem> GetRAGEvidence(string query, int maxPerFile = 2)
