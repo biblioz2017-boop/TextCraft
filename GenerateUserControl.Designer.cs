@@ -2,30 +2,17 @@
 {
     partial class GenerateUserControl
     {
-        /// <summary> 
-        /// Required designer variable.
-        /// </summary>
         private System.ComponentModel.IContainer components = null;
 
-        /// <summary> 
-        /// Clean up any resources being used.
-        /// </summary>
-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
-            {
                 components.Dispose();
-            }
             base.Dispose(disposing);
         }
 
         #region Component Designer generated code
 
-        /// <summary> 
-        /// Required method for Designer support - do not modify 
-        /// the contents of this method with the code editor.
-        /// </summary>
         private void InitializeComponent()
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(GenerateUserControl));
@@ -38,49 +25,44 @@
             this.panel1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.TemperatureTrackBar)).BeginInit();
             this.SuspendLayout();
-            // 
+
             // PromptTextBox
-            // 
             resources.ApplyResources(this.PromptTextBox, "PromptTextBox");
             this.PromptTextBox.Name = "PromptTextBox";
             this.PromptTextBox.KeyDown += new System.Windows.Forms.KeyEventHandler(this.PromptTextBox_KeyDown);
-            // 
+
             // GenerateButton
-            // 
             resources.ApplyResources(this.GenerateButton, "GenerateButton");
             this.GenerateButton.Name = "GenerateButton";
+            this.GenerateButton.Text = "Выполнить";
             this.GenerateButton.UseVisualStyleBackColor = true;
             this.GenerateButton.Click += new System.EventHandler(this.GenerateButton_Click);
-            // 
-            // panel1
-            // 
+
+            // panel1 (advanced temperature control hidden in simplified UI)
             this.panel1.Controls.Add(this.TemperatureValueLabel);
             this.panel1.Controls.Add(this.TemperatureLabel);
             this.panel1.Controls.Add(this.TemperatureTrackBar);
             resources.ApplyResources(this.panel1, "panel1");
             this.panel1.Name = "panel1";
-            // 
+            this.panel1.Visible = false;
+
             // TemperatureValueLabel
-            // 
             resources.ApplyResources(this.TemperatureValueLabel, "TemperatureValueLabel");
             this.TemperatureValueLabel.Name = "TemperatureValueLabel";
-            // 
+
             // TemperatureLabel
-            // 
             resources.ApplyResources(this.TemperatureLabel, "TemperatureLabel");
             this.TemperatureLabel.Name = "TemperatureLabel";
-            // 
+
             // TemperatureTrackBar
-            // 
             resources.ApplyResources(this.TemperatureTrackBar, "TemperatureTrackBar");
             this.TemperatureTrackBar.LargeChange = 1;
             this.TemperatureTrackBar.Name = "TemperatureTrackBar";
-            this.TemperatureTrackBar.SmallChange = 2;
-            this.TemperatureTrackBar.Value = 5;
+            this.TemperatureTrackBar.SmallChange = 1;
+            this.TemperatureTrackBar.Value = 1;
             this.TemperatureTrackBar.Scroll += new System.EventHandler(this.TemperatureTrackBar_Scroll);
-            // 
+
             // GenerateUserControl
-            // 
             resources.ApplyResources(this, "$this");
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.Controls.Add(this.panel1);
@@ -92,7 +74,6 @@
             ((System.ComponentModel.ISupportInitialize)(this.TemperatureTrackBar)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
-
         }
 
         #endregion
