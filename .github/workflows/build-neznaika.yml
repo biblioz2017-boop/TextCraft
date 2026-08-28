@@ -54,12 +54,19 @@ jobs:
           $about = Get-Content 'AboutBox.cs' -Raw
           foreach ($marker in @(
             'НеZнайка',
-            'NeZnaikaOwlJpegBase64',
             'Надстройка, созданная во имя текста, правок и человеческих страданий.',
             'Вместе с НеZнайкой мы натянем любую сову на глобус!',
             'И не забывайте страдать!'
           )) {
             if (-not $about.Contains($marker)) { throw "Missing About marker: $marker" }
+          }
+
+          if (-not (Test-Path 'Assets\NeZnaikaOwl.jpg')) {
+            throw 'NeZnaika owl source image is missing.'
+          }
+          $resx = Get-Content 'AboutBox.resx' -Raw
+          if (-not $resx.Contains('name="logoPictureBox.Image"')) {
+            throw 'AboutBox image resource is missing.'
           }
 
           $targets = Get-Content 'Directory.Build.targets' -Raw

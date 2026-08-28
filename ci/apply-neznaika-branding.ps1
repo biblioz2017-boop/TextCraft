@@ -91,13 +91,27 @@ if (Test-Path $forgePath) {
     Write-Utf8Text $forgePath $forge
 }
 
-# Embed the exact user-provided owl-with-globe picture through AboutBox.resx. This is
-# more reliable than decoding image strings at runtime and guarantees that the image
-# visible in the designer resource is the image shipped in TextCraft.dll.
+# Embed the exact user-provided owl-with-globe picture through AboutBox.resx. The
+# existing WinForms Bitmap resource is PNG-encoded, so normalize the JPEG asset to
+# PNG bytes before inserting it. Feeding raw JPEG bytes into this ResX Bitmap entry
+# makes the Windows resource reader fail with MSB3103 / "Parameter is not valid".
 $owlPath = 'Assets/NeZnaikaOwl.jpg'
 $resxPath = 'AboutBox.resx'
 if ((Test-Path $owlPath) -and (Test-Path $resxPath)) {
-    $owlBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Resolve-Path $owlPath).Path))
+    Add-Type -AssemblyName System.Drawing
+    $owlImage = $null
+    $pngStream = $null
+    try {
+        $owlImage = [System.Drawing.Image]::FromFile((Resolve-Path $owlPath).Path)
+        $pngStream = New-Object System.IO.MemoryStream
+        $owlImage.Save($pngStream, [System.Drawing.Imaging.ImageFormat]::Png)
+        $owlBase64 = [Convert]::ToBase64String($pngStream.ToArray())
+    }
+    finally {
+        if ($pngStream) { $pngStream.Dispose() }
+        if ($owlImage) { $owlImage.Dispose() }
+    }
+
     $resx = Read-Utf8Text $resxPath
     $logoPattern = '(?s)(<data name="logoPictureBox.Image"[^>]*>\s*<value>).*?(</value>\s*</data>)'
     if (-not [regex]::IsMatch($resx, $logoPattern)) {
@@ -110,7 +124,7 @@ if ((Test-Path $owlPath) -and (Test-Path $resxPath)) {
         1
     )
     Write-Utf8Text $resxPath $resx
-    Write-Host 'Embedded verified owl-with-globe image into AboutBox.resx.'
+    Write-Host 'Embedded verified owl-with-globe image into AboutBox.resx as PNG bitmap data.'
 }
 
 $setupPath = 'OfficeAddInSetup/OfficeAddInSetup.vdproj'
