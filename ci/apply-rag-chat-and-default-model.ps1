@@ -1,11 +1,24 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
-# This patch runs immediately before C# compilation (via Directory.Build.targets).
-# It is intentionally idempotent because MSBuild can invoke BeforeCompile more than once.
+# This patch is invoked by Windows PowerShell 5.1 from MSBuild. GitHub source files
+# are UTF-8, frequently without a BOM, while PowerShell 5.1 may otherwise read them
+# using the active ANSI code page. Use .NET UTF-8 I/O explicitly so Unicode character
+# literals in Forge.cs and Russian UI strings are never corrupted during the build.
+$script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+function Read-Utf8Text([string]$Path) {
+    $fullPath = (Resolve-Path $Path).Path
+    return [System.IO.File]::ReadAllText($fullPath, [System.Text.Encoding]::UTF8)
+}
+
+function Write-Utf8Text([string]$Path, [string]$Text) {
+    $fullPath = (Resolve-Path $Path).Path
+    [System.IO.File]::WriteAllText($fullPath, $Text, $script:Utf8NoBom)
+}
 
 Write-Host 'Applying RAG chat semantic-query patch...'
 $ragPath = 'RAGControl.cs'
-$rag = Get-Content $ragPath -Raw
+$rag = Read-Utf8Text $ragPath
 
 if (-not $rag.Contains('string semanticRagQuery = lastUserPrompt.Content[0].Text;')) {
     $old = @'
@@ -54,11 +67,11 @@ $rag = $rag.Replace(
     'ThisAddIn.AllTaskPanes[doc].Item3.GetRAGContext(semanticRagQuery, (int)(ThisAddIn.ContextLength * constraints["rag_context"]))'
 )
 
-Set-Content $ragPath $rag -Encoding UTF8
+Write-Utf8Text $ragPath $rag
 
 Write-Host 'Applying force-RAG supplement checkbox...'
 $sciencePath = 'GenerateUserControl.Science.cs'
-$science = Get-Content $sciencePath -Raw
+$science = Read-Utf8Text $sciencePath
 
 if (-not $science.Contains('private CheckBox _forceRagCheckBox;')) {
     $fieldAnchor = '        private Timer _chatRedrawTimer;'
@@ -163,14 +176,13 @@ if ($science.Contains($oldFinalPrompt)) {
     $science = $science.Replace($oldFinalPrompt, $newFinalPrompt)
 }
 
-Set-Content $sciencePath $science -Encoding UTF8
+Write-Utf8Text $sciencePath $science
 
 Write-Host 'Applying explicit default-model UI patch...'
 $designerPath = 'Forge.Designer.cs'
-$designer = Get-Content $designerPath -Raw
+$designer = Read-Utf8Text $designerPath
 
-# The simplified UI originally hid the upstream default-model checkbox and did not
-# place it in the Model group. Restore it as an explicit user action.
+# Restore the upstream checkbox as an explicit user action in the Model group.
 if (-not $designer.Contains('this.SettingsGroup.Items.Add(this.DefaultCheckBox);')) {
     $anchor = '            this.SettingsGroup.Items.Add(this.ModelListDropDown);'
     if (-not $designer.Contains($anchor)) {
@@ -183,14 +195,13 @@ if (-not $designer.Contains('this.SettingsGroup.Items.Add(this.DefaultCheckBox);
 }
 
 $designer = $designer.Replace('            this.DefaultCheckBox.Visible = false;', '            this.DefaultCheckBox.Visible = true;')
-$designer = $designer.Replace('            this.DefaultCheckBox.Label = "По умолчанию";', '            this.DefaultCheckBox.Label = "По умолчанию";')
-Set-Content $designerPath $designer -Encoding UTF8
+Write-Utf8Text $designerPath $designer
 
 $forgePath = 'Forge.cs'
-$forge = Get-Content $forgePath -Raw
+$forge = Read-Utf8Text $forgePath
 
-# Selecting a model now changes only the current session. It becomes the startup model
-# only after the user explicitly checks "По умолчанию".
+# Selecting a model changes only the current session. It becomes the startup model
+# only after the user explicitly checks the default-model checkbox.
 $oldSelectionSave = @'
                 ThisAddIn.Model = selectedModel;
 
@@ -226,6 +237,6 @@ if ($forge.Contains($oldDefaultHandler)) {
     $forge = $forge.Replace($oldDefaultHandler, $newDefaultHandler)
 }
 
-Set-Content $forgePath $forge -Encoding UTF8
+Write-Utf8Text $forgePath $forge
 
-Write-Host 'RAG follow-up retrieval, force-RAG checkbox, and explicit default-model selection prepared.'
+Write-Host 'RAG follow-up retrieval, force-RAG checkbox, UTF-8-safe patching, and explicit default-model selection prepared.'
