@@ -174,10 +174,10 @@ if ($science.Contains($oldFinalPrompt)) {
     $science = $science.Replace($oldFinalPrompt, $newFinalPrompt)
 }
 
-# Keep the chat action buttons visible. The scientific evidence panel occupies the
-# bottom of the task pane, so move the response action toolbar into that panel rather
-# than leaving it in a row that can be clipped on narrow Word windows.
-if (-not $science.Contains('_evidencePanel.Controls.Add(_responseActionsPanel);')) {
+# Put the chat toolbar in an explicit table row. A Dock=Fill evidence RichTextBox can
+# cover a bottom-docked FlowLayoutPanel depending on WinForms z-order, which is why the
+# buttons existed in build #52 but were invisible in Word.
+if (-not $science.Contains('TableLayoutPanel evidenceLayout = new TableLayoutPanel')) {
     $oldEvidencePanel = @'
             _evidencePanel = new Panel
             {
@@ -195,23 +195,42 @@ if (-not $science.Contains('_evidencePanel.Controls.Add(_responseActionsPanel);'
             _evidencePanel = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 205,
+                Height = 235,
                 Padding = new Padding(8, 0, 8, 8)
             };
 
             if (_mainLayout != null && _mainLayout.RowStyles.Count > 8)
                 _mainLayout.RowStyles[8].Height = 0F;
 
-            _responseActionsPanel.Dock = DockStyle.Bottom;
-            _responseActionsPanel.Height = 64;
+            _responseActionsPanel.Dock = DockStyle.Fill;
             _responseActionsPanel.WrapContents = true;
             _responseActionsPanel.AutoScroll = true;
-            _responseActionsPanel.Margin = new Padding(0, 4, 0, 0);
+            _responseActionsPanel.FlowDirection = FlowDirection.LeftToRight;
+            _responseActionsPanel.Margin = new Padding(0);
+            _responseActionsPanel.Padding = new Padding(0, 3, 0, 3);
 
-            _evidencePanel.Controls.Add(_evidenceTextBox);
-            _evidencePanel.Controls.Add(evidenceLabel);
-            _evidencePanel.Controls.Add(_responseActionsPanel);
-            _responseActionsPanel.BringToFront();
+            TableLayoutPanel evidenceLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            evidenceLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            evidenceLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 72F));
+            evidenceLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));
+            evidenceLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+            evidenceLabel.Dock = DockStyle.Fill;
+            evidenceLabel.Margin = new Padding(0);
+            _evidenceTextBox.Dock = DockStyle.Fill;
+            _evidenceTextBox.Margin = new Padding(0);
+
+            evidenceLayout.Controls.Add(_responseActionsPanel, 0, 0);
+            evidenceLayout.Controls.Add(evidenceLabel, 0, 1);
+            evidenceLayout.Controls.Add(_evidenceTextBox, 0, 2);
+            _evidencePanel.Controls.Add(evidenceLayout);
 
             Controls.Add(_evidencePanel);
             Controls.SetChildIndex(_evidencePanel, 0);
@@ -246,7 +265,7 @@ if (-not $chat.Contains('private Button _insertWholeChatButton;')) {
 }
 
 $chat = $chat.Replace('                Text = "Вставить в документ",', '                Text = "Ответ → Word",')
-$chat = $chat.Replace('                Text = "Копировать",', '                Text = "Копировать ответ",')
+$chat = $chat.Replace('                Text = "Копировать",', '                Text = "Копировать",')
 $chat = $chat.Replace('                Text = "Очистить",', '                Text = "Очистить чат",')
 
 if (-not $chat.Contains('_responseTextBox.SelectionChanged += ResponseTextBox_SelectionChanged;')) {
@@ -270,6 +289,7 @@ if (-not $chat.Contains('_insertWholeChatButton = new Button')) {
                 Text = "Весь чат → Word",
                 AutoSize = true,
                 Height = 28,
+                Margin = new Padding(2),
                 Enabled = false
             };
             _insertWholeChatButton.Click += InsertWholeChatButton_Click;
@@ -279,6 +299,7 @@ if (-not $chat.Contains('_insertWholeChatButton = new Button')) {
                 Text = "Выделенное → Word",
                 AutoSize = true,
                 Height = 28,
+                Margin = new Padding(2),
                 Enabled = false
             };
             _insertSelectedChatButton.Click += InsertSelectedChatButton_Click;
@@ -473,4 +494,4 @@ if ($forge.Contains($oldDefaultHandler)) {
 
 Write-Utf8Text $forgePath $forge
 
-Write-Host 'RAG follow-up retrieval, strict chat actions, UTF-8-safe patching, and explicit default-model selection prepared.'
+Write-Host 'RAG follow-up retrieval, visible chat action table, UTF-8-safe patching, and explicit default-model selection prepared.'
