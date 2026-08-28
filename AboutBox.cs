@@ -22,9 +22,9 @@ namespace TextForge
             try
             {
                 InitializeComponent();
-                this.Text = "О программе — neZnaika";
-                this.labelProductName.Text = "neZnaika";
-                this.labelVersion.Text = string.Format(_cultureHelper.GetLocalizedString("[AboutBox()] this.labelVersion.Text"), AssemblyVersion);
+                this.Text = "О программе — НеZнайка";
+                this.labelProductName.Text = "НеZнайка";
+                this.labelVersion.Text = "Версия " + AssemblyVersion;
                 this.labelCopyright.Text = AssemblyCopyright;
                 this.labelCompanyName.Text = "Локальная AI-надстройка для Microsoft Word";
 
