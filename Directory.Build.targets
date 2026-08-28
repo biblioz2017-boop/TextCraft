@@ -1,0 +1,7 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Target Name="ApplyTextCraftRagAndDefaultModelPatch"
+          BeforeTargets="BeforeCompile"
+          Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-chat-and-default-model.ps1&quot;" />
+  </Target>
+</Project>
