@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using OpenAI.Chat;
 using Word = Microsoft.Office.Interop.Word;
 
 namespace TextForge
@@ -23,6 +24,14 @@ namespace TextForge
         private int _evidenceRequestVersion;
         private Timer _chatRedrawTimer;
 
+        private const string AlwaysUseRagInstruction =
+            "Критическое правило для ответа: если TextCraft передал выше RAG-контекст из отмеченных PDF, " +
+            "обязательно используй содержащиеся в нем сведения, а не отвечай только по памяти модели. " +
+            "При наличии релевантных RAG-фрагментов добавляй конкретные сведения из них и сохраняй ссылки " +
+            "на источник и страницу в формате [имя.pdf, с. N], если страница явно указана в контексте. " +
+            "Не выдумывай сведения, которых нет в RAG. Если найденные фрагменты не отвечают на вопрос, прямо скажи об этом. " +
+            "Если запрос продолжает предыдущий ответ, не повторяй его целиком: дополни новыми релевантными сведениями из RAG.";
+
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
@@ -35,9 +44,16 @@ namespace TextForge
             AddScientificQuickActions();
             AddEvidencePanel();
 
-            // The original chat appends tiny streaming fragments and calls ScrollToCaret
-            // for every fragment. Batch visual redraws so the text remains stable while
-            // still updating several times per second.
+            // Replace the original chat click handler with the RAG-aware version below.
+            // The original handler is still kept in GenerateUserControl.cs for upstream
+            // compatibility, but it serializes chat history as one user message and uses
+            // a generic follow-up such as "дополни из RAG" as the semantic retrieval query.
+            GenerateButton.Click -= GenerateButton_Click;
+            GenerateButton.Click += GenerateButton_RagAwareClick;
+
+            // The build patch removes this older redraw hook and uses buffered streaming
+            // in StreamAnswerToPane instead. Keep the registration in source so the patch
+            // remains reproducible for both old and new branch builds.
             GenerateButton.Click += GenerateButton_SmoothStreaming;
             GenerateButton.Click += GenerateButton_EvidenceRefresh;
             _clearButton.Click += (s, args) => _evidenceTextBox.Clear();
@@ -115,10 +131,180 @@ namespace TextForge
             Controls.SetChildIndex(_evidencePanel, 0);
         }
 
+        private async void GenerateButton_RagAwareClick(object sender, EventArgs e)
+        {
+            try
+            {
+                string userQuery = (PromptTextBox.Text ?? string.Empty).Trim();
+                if (userQuery.Length == 0)
+                    throw new EmptyTextBoxException(
+                        CultureHelper.GetLocalizedString("[GenerateButton_Click] TextBoxEmptyException #1")
+                    );
+
+                if (ModelProperties.IsImageModel(ThisAddIn.Model))
+                {
+                    MessageBox.Show(
+                        "Для чата с документом и литературой выберите языковую модель.",
+                        "TextCraft",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                    return;
+                }
+
+                GenerateButton.Enabled = false;
+                _insertButton.Enabled = false;
+                _copyButton.Enabled = false;
+
+                Word.Range anchorRange = Globals.ThisAddIn.Application.Selection.Range.Duplicate;
+                Word.Range docRange = Globals.ThisAddIn.Application.ActiveDocument.Range();
+                string localCursorContext = GetLocalCursorContext(anchorRange);
+                string templateInstruction = GetSelectedTemplateInstruction();
+                string templateName = GetSelectedTemplateName();
+
+                List<ChatMessage> messages = BuildRagAwareMessages(
+                    userQuery,
+                    templateInstruction,
+                    localCursorContext
+                );
+
+                AppendConversationHeader(userQuery, templateName);
+                _responseLabel.Text = "Диалог / ответ — готовлю RAG-контекст…";
+                await Task.Yield();
+
+                var streamingAnswer = RAGControl.AskQuestion(
+                    new SystemChatMessage(
+                        ThisAddIn.SystemPromptLocalization["(GenerateUserControl.cs) _systemPrompt"]
+                    ),
+                    messages,
+                    docRange,
+                    GetTemperature()
+                );
+
+                _responseLabel.Text = "Диалог / ответ — ожидаю первый токен…";
+                string response = await StreamAnswerToPane(streamingAnswer);
+                _lastResponseMarkdown = response;
+                _lastTemplateName = templateName;
+
+                if (!string.IsNullOrWhiteSpace(response))
+                {
+                    _conversationTurns.Add(new ConversationTurn(userQuery, response));
+                    while (_conversationTurns.Count > MaxConversationTurns)
+                        _conversationTurns.RemoveAt(0);
+
+                    _insertButton.Enabled = true;
+                    _copyButton.Enabled = true;
+                }
+
+                PromptTextBox.Clear();
+                PromptTextBox.Focus();
+            }
+            catch (EmptyTextBoxException ex)
+            {
+                CommonUtils.DisplayInformation(ex);
+            }
+            catch (OperationCanceledException ex)
+            {
+                CommonUtils.DisplayWarning(ex);
+            }
+            catch (Exception ex)
+            {
+                CommonUtils.DisplayError(ex);
+            }
+            finally
+            {
+                GenerateButton.Enabled = true;
+                if (_responseLabel != null)
+                    _responseLabel.Text = "Диалог / ответ:";
+            }
+        }
+
+        private List<ChatMessage> BuildRagAwareMessages(
+            string userQuery,
+            string templateInstruction,
+            string localCursorContext
+        )
+        {
+            var messages = new List<ChatMessage>();
+
+            // Preserve real chat roles. Previously the whole conversation, including
+            // assistant answers, was wrapped into one UserChatMessage. Small local models
+            // tend to echo that block instead of treating the new request as a follow-up.
+            if (_conversationTurns.Count > 0)
+            {
+                int answerTokens = Math.Max(256, (int)(ThisAddIn.ContextLength * 0.07));
+                int questionTokens = Math.Max(96, (int)(ThisAddIn.ContextLength * 0.02));
+
+                foreach (ConversationTurn turn in _conversationTurns)
+                {
+                    messages.Add(
+                        new UserChatMessage(
+                            CommonUtils.SubstringTokens(turn.Question ?? string.Empty, questionTokens)
+                        )
+                    );
+                    messages.Add(
+                        new AssistantChatMessage(
+                            CommonUtils.SubstringTokens(turn.Answer ?? string.Empty, answerTokens)
+                        )
+                    );
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(localCursorContext))
+            {
+                messages.Add(
+                    new UserChatMessage(
+                        "Локальный контекст вокруг курсора из текущего Word-документа. " +
+                        "Используй его для связи ответа с текущим разделом, но не считай его внешним доказательством:\n\n\"" +
+                        localCursorContext +
+                        "\""
+                    )
+                );
+            }
+
+            // This rule is used even for "Свободный запрос". Previously that mode had no
+            // instruction forcing the model to consume the RAG context, so a model could
+            // answer entirely from its pretrained knowledge despite attached PDFs.
+            messages.Add(new UserChatMessage(AlwaysUseRagInstruction));
+
+            if (!string.IsNullOrWhiteSpace(templateInstruction))
+                messages.Add(new UserChatMessage(templateInstruction));
+
+            // RAGControl.ProcessInformation() uses messages.Last() as the semantic query.
+            // Generic follow-ups like "используй RAG и дополни" carry almost no subject
+            // terms, so explicitly include the previous user topic but never the previous
+            // assistant answer. This retrieves crystallography chunks for a crystallography
+            // follow-up instead of embedding only the words "дополни" and "RAG".
+            string retrievalQuery = BuildRagRetrievalQuery(userQuery);
+            string finalPrompt =
+                "Текущий запрос пользователя: " + userQuery + "\n" +
+                "Тема для семантического поиска в RAG: " + retrievalQuery + "\n\n" +
+                "Ответь именно на текущий запрос. Если выше передан RAG-контекст, обязательно используй его. " +
+                "Для продолжения предыдущего ответа добавляй новые сведения из RAG и не повторяй старый текст дословно.";
+
+            messages.Add(new UserChatMessage(finalPrompt));
+            return messages;
+        }
+
+        private string BuildRagRetrievalQuery(string userQuery)
+        {
+            string current = (userQuery ?? string.Empty).Trim();
+            if (_conversationTurns.Count == 0)
+                return current;
+
+            ConversationTurn previous = _conversationTurns[_conversationTurns.Count - 1];
+            string previousQuestion = (previous.Question ?? string.Empty).Trim();
+            if (previousQuestion.Length == 0)
+                return current;
+
+            // Put the actual subject first. For a request such as "используй материал из
+            // RAG и дополни реферат", the useful embedding becomes roughly
+            // "расскажи о кристаллографии + используй ...", not just the generic command.
+            return previousQuestion + "\n" + current;
+        }
+
         private async void GenerateButton_SmoothStreaming(object sender, EventArgs e)
         {
-            // The primary async click handler is registered first and disables the button
-            // before yielding to streaming. If it did not start, there is nothing to batch.
             await Task.Yield();
             if (GenerateButton.Enabled || _responseTextBox == null || !_responseTextBox.IsHandleCreated)
                 return;
@@ -137,7 +323,6 @@ namespace TextForge
                     return;
                 }
 
-                // One paint for a batch of tokens, then freeze again until the next batch.
                 SetChatRedraw(true);
                 _responseTextBox.Refresh();
                 SetChatRedraw(false);
@@ -205,6 +390,10 @@ namespace TextForge
             if (query.Length == 0)
                 return;
 
+            // Use the same subject-aware query as the main RAG request, so evidence for a
+            // follow-up remains on the previous scientific topic instead of generic words.
+            string evidenceQuery = BuildRagRetrievalQuery(query);
+
             int requestVersion = ++_evidenceRequestVersion;
             _evidenceTextBox.Text = "Поиск подтверждающих фрагментов…";
 
@@ -224,7 +413,7 @@ namespace TextForge
                 }
 
                 List<RAGControl.RagEvidenceItem> evidence = await Task.Run(
-                    () => rag.GetRAGEvidence(query, 2)
+                    () => rag.GetRAGEvidence(evidenceQuery, 2)
                 );
 
                 if (requestVersion != _evidenceRequestVersion)
@@ -275,7 +464,6 @@ namespace TextForge
                 }
             }
 
-            // Common case: one open document but COM returned a different RCW proxy.
             if (ThisAddIn.AllTaskPanes.Count == 1)
             {
                 foreach (var entry in ThisAddIn.AllTaskPanes)
