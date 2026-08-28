@@ -40,6 +40,42 @@ jobs:
           )
           Set-Content $project $xml -Encoding UTF8
 
+      - name: Rebuild owl JPEG from stable PNG
+        shell: pwsh
+        run: |
+          $source = 'Assets\NeZnaikaOwl.normalized.png'
+          $target = 'Assets\NeZnaikaOwl.jpg'
+          if (-not (Test-Path $source)) { throw 'Stable owl PNG is missing.' }
+
+          $png = [System.IO.File]::ReadAllBytes($source)
+          $sig = [byte[]](0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
+          if ($png.Length -lt $sig.Length) { throw 'Stable owl PNG is too short.' }
+          for ($i = 0; $i -lt $sig.Length; $i++) {
+            if ($png[$i] -ne $sig[$i]) { throw 'Stable owl source is not a PNG.' }
+          }
+
+          Add-Type -AssemblyName System.Drawing
+          Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+          $image = [System.Drawing.Image]::FromFile((Resolve-Path $source).Path)
+          try {
+            $bitmap = New-Object System.Drawing.Bitmap($image)
+            try {
+              $bitmap.Save((Join-Path (Get-Location) $target), [System.Drawing.Imaging.ImageFormat]::Jpeg)
+            }
+            finally {
+              $bitmap.Dispose()
+            }
+          }
+          finally {
+            $image.Dispose()
+          }
+
+          $jpeg = [System.IO.File]::ReadAllBytes($target)
+          if ($jpeg.Length -lt 4 -or $jpeg[0] -ne 0xFF -or $jpeg[1] -ne 0xD8 -or $jpeg[$jpeg.Length - 2] -ne 0xFF -or $jpeg[$jpeg.Length - 1] -ne 0xD9) {
+            throw 'Rebuilt owl JPEG is invalid.'
+          }
+          Write-Host "Rebuilt owl JPEG from stable PNG: $($jpeg.Length) bytes."
+
       - name: Validate original owl resource
         shell: pwsh
         run: |
