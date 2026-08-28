@@ -108,17 +108,36 @@ jobs:
             throw "Unexpected TextCraft.dll file version: $fileVersion"
           }
 
-          $appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
-          foreach ($marker in @(
-            '<assemblyIdentity name="TextCraft.dll" version="1.0.15.0"',
-            '<assemblyIdentity name="TextCraft" version="1.0.15.0"'
-          )) {
-            if (-not $appManifest.Contains($marker)) { throw "Missing application manifest version marker: $marker" }
+          [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
+          $applicationIdentity = $appManifest.SelectSingleNode(
+            "//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']"
+          )
+          if ($null -eq $applicationIdentity) {
+            throw 'Application manifest identity TextCraft.dll is missing.'
+          }
+          if ($applicationIdentity.version -ne '1.0.15.0') {
+            throw "Unexpected application manifest version: $($applicationIdentity.version)"
           }
 
-          $deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
-          if (-not $deploymentManifest.Contains('<assemblyIdentity name="TextCraft.vsto" version="1.0.15.0"')) {
-            throw 'Deployment manifest was not upgraded to 1.0.15.0.'
+          $payloadIdentity = $appManifest.SelectSingleNode(
+            "//*[local-name()='assemblyIdentity' and @name='TextCraft']"
+          )
+          if ($null -eq $payloadIdentity) {
+            throw 'Application manifest identity TextCraft is missing.'
+          }
+          if ($payloadIdentity.version -ne '1.0.15.0') {
+            throw "Unexpected payload manifest version: $($payloadIdentity.version)"
+          }
+
+          [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
+          $deploymentIdentity = $deploymentManifest.SelectSingleNode(
+            "//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']"
+          )
+          if ($null -eq $deploymentIdentity) {
+            throw 'Deployment manifest identity TextCraft.vsto is missing.'
+          }
+          if ($deploymentIdentity.version -ne '1.0.15.0') {
+            throw "Unexpected deployment manifest version: $($deploymentIdentity.version)"
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
