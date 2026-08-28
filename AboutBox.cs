@@ -10,7 +10,7 @@ namespace TextForge
         private static readonly CultureLocalizationHelper _cultureHelper =
             new CultureLocalizationHelper("TextForge.AboutBox", typeof(AboutBox).Assembly);
 
-        private const string OwlResourceName = "TextForge.NeZnaikaOwl.png";
+        private const string OwlResourceName = "TextForge.NeZnaikaOwl.jpg";
 
         private const string NeZnaikaAboutText =
             "Надстройка, созданная во имя текста, правок и человеческих страданий.\r\n\r\n" +
@@ -31,12 +31,9 @@ namespace TextForge
             this.labelCopyright.Text = AssemblyCopyright;
             this.labelCompanyName.Text = "Локальная AI-надстройка для Microsoft Word";
 
-            // Do not store System.Drawing.Image objects in AboutBox.resx. MSBuild's
-            // GenerateResource serializes those objects through GDI+ and can fail on
-            // headless Windows runners. The PNG is embedded as a raw manifest resource
-            // and decoded only when this dialog is actually opened in Word.
             this.logoPictureBox.SizeMode = PictureBoxSizeMode.Zoom;
             this.logoPictureBox.BackColor = Color.White;
+            this.logoPictureBox.Dock = DockStyle.Fill;
             LoadNeZnaikaLogo();
 
             this.Size = new Size(900, 620);
@@ -67,16 +64,12 @@ namespace TextForge
                     if (stream == null)
                         return;
 
-                    // Clone the image so the PictureBox does not depend on the lifetime
-                    // of the manifest-resource stream after this method returns.
                     using (Image source = Image.FromStream(stream, true, true))
                         this.logoPictureBox.Image = new Bitmap(source);
                 }
             }
             catch
             {
-                // The About dialog must remain usable even if Windows cannot decode the
-                // optional logo on a particular machine.
                 this.logoPictureBox.Image = null;
             }
         }
