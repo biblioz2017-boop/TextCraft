@@ -40,18 +40,16 @@ jobs:
           )
           Set-Content $project $xml -Encoding UTF8
 
-      - name: Validate normalized owl resource
+      - name: Validate original owl resource
         shell: pwsh
         run: |
-          $path = 'Assets\NeZnaikaOwl.normalized.png'
-          if (-not (Test-Path $path)) { throw 'Normalized owl PNG is missing.' }
+          $path = 'Assets\NeZnaikaOwl.jpg'
+          if (-not (Test-Path $path)) { throw 'Original owl JPEG is missing.' }
           $bytes = [System.IO.File]::ReadAllBytes($path)
-          $sig = [byte[]](0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
-          if ($bytes.Length -lt $sig.Length) { throw 'Normalized owl PNG is too short.' }
-          for ($i = 0; $i -lt $sig.Length; $i++) {
-            if ($bytes[$i] -ne $sig[$i]) { throw 'Normalized owl resource is not a PNG.' }
+          if ($bytes.Length -lt 4 -or $bytes[0] -ne 0xFF -or $bytes[1] -ne 0xD8 -or $bytes[$bytes.Length - 2] -ne 0xFF -or $bytes[$bytes.Length - 1] -ne 0xD9) {
+            throw 'Original owl file is not a valid JPEG stream.'
           }
-          Write-Host "Verified clean owl PNG: $($bytes.Length) bytes."
+          Write-Host "Verified original owl JPEG: $($bytes.Length) bytes."
 
       - name: Apply Fast RAG fix
         shell: pwsh
@@ -70,25 +68,21 @@ jobs:
             'Надстройка, созданная во имя текста, правок и человеческих страданий.',
             'Вместе с НеZнайкой мы натянем любую сову на глобус!',
             'И не забывайте страдать!',
-            'TextForge.NeZnaikaOwl.png'
+            'TextForge.NeZnaikaOwl.jpg'
           )) {
             if (-not $about.Contains($marker)) { throw "Missing About marker: $marker" }
           }
 
-          if (-not (Test-Path 'Assets\NeZnaikaOwl.normalized.png')) {
-            throw 'NeZnaika embedded owl PNG is missing.'
-          }
-
           $resx = Get-Content 'AboutBox.resx' -Raw
           if ($resx.Contains('name="logoPictureBox.Image"')) {
-            throw 'AboutBox.resx still contains a System.Drawing.Image; GDI+ build failure can recur.'
+            throw 'AboutBox.resx still contains a System.Drawing.Image.'
           }
 
           $targets = Get-Content 'Directory.Build.targets' -Raw
           foreach ($marker in @(
             '<ApplicationVersion>1.0.14.0</ApplicationVersion>',
-            'NeZnaikaOwl.normalized.png',
-            '<LogicalName>TextForge.NeZnaikaOwl.png</LogicalName>',
+            'Assets\NeZnaikaOwl.jpg',
+            '<LogicalName>TextForge.NeZnaikaOwl.jpg</LogicalName>',
             '<Type>Non-Resx</Type>'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build target marker: $marker" }
@@ -107,30 +101,13 @@ jobs:
         run: |
           $cert = Get-Item "Cert:\CurrentUser\My\$env:NEZNAIKA_CERT_THUMBPRINT"
           Export-Certificate -Cert $cert -FilePath 'artifact\NeZnaika-CI.cer' -Force | Out-Null
-
           Remove-Item 'artifact\Install-TextCraft.ps1' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
-
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($msi -and $msi.Name -ne 'NeZnaika-1.0.14-Setup.msi') {
             Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.14-Setup.msi' -Force
           }
-
-          @'
-          НЕZНАЙКА 1.0.14 — УСТАНОВКА
-          ============================
-
-          Запустите:
-              00_INSTALL-NeZnaika.cmd
-
-          Это основной установщик. Его исполняемые файлы специально оставлены ASCII-only,
-          чтобы Windows PowerShell 5.1 не зависел от системной кодировки.
-
-          Внутренние имена TextCraft.dll/TextCraft.vsto сохранены только для совместимости VSTO.
-          Пользовательское имя продукта: НеZнайка.
-          Версия: 1.0.14.
-          '@ | Set-Content -Path 'artifact\00_README-FIRST.txt' -Encoding UTF8
 
       - name: Upload НеZнайка 1.0.14
         uses: actions/upload-artifact@v4
