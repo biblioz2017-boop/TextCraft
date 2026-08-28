@@ -1,4 +1,14 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- User-facing VSTO identity. Keep the internal assembly/file name TextCraft for
+       compatibility, but make Word and the deployment manifest show НеZнайка. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <ProductName>НеZнайка</ProductName>
+    <FriendlyName>НеZнайка</FriendlyName>
+    <PublisherName>НеZнайка</PublisherName>
+    <ApplicationVersion>1.0.14.0</ApplicationVersion>
+    <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
+  </PropertyGroup>
+
   <Target Name="ApplyTextCraftRagAndDefaultModelPatch"
           BeforeTargets="BeforeCompile"
           Condition="'$(MSBuildProjectName)' == 'TextCraft'">
