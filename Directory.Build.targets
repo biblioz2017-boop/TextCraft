@@ -15,7 +15,7 @@
   <Target Name="ApplyNeZnaikaBranding"
           BeforeTargets="CoreResGen"
           Condition="'$(MSBuildProjectName)' == 'TextCraft'">
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;$p='$(MSBuildProjectDirectory)\ci\apply-neznaika-branding.ps1'; $s=[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8); Invoke-Expression $s&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-neznaika-branding-safe.ps1&quot;" />
   </Target>
 
   <Target Name="ApplyTextCraftRagAndDefaultModelPatch"
