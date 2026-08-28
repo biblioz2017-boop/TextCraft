@@ -43,16 +43,15 @@ jobs:
       - name: Validate normalized owl resource
         shell: pwsh
         run: |
-          $path = 'Assets\NeZnaikaOwl.normalized.b64'
-          if (-not (Test-Path $path)) { throw 'Normalized owl resource is missing.' }
-          $b64 = ((Get-Content $path -Raw) -replace '\s+', '')
-          $bytes = [Convert]::FromBase64String($b64)
+          $path = 'Assets\NeZnaikaOwl.normalized.png'
+          if (-not (Test-Path $path)) { throw 'Normalized owl PNG is missing.' }
+          $bytes = [System.IO.File]::ReadAllBytes($path)
           $sig = [byte[]](0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
           if ($bytes.Length -lt $sig.Length) { throw 'Normalized owl PNG is too short.' }
           for ($i = 0; $i -lt $sig.Length; $i++) {
             if ($bytes[$i] -ne $sig[$i]) { throw 'Normalized owl resource is not a PNG.' }
           }
-          Write-Host "Verified normalized owl PNG: $($bytes.Length) bytes."
+          Write-Host "Verified clean owl PNG: $($bytes.Length) bytes."
 
       - name: Apply Fast RAG fix
         shell: pwsh
@@ -83,9 +82,10 @@ jobs:
             throw 'AboutBox image resource is missing.'
           }
 
-          $normalized = ((Get-Content 'Assets\NeZnaikaOwl.normalized.b64' -Raw) -replace '\s+', '')
+          $owlBytes = [System.IO.File]::ReadAllBytes('Assets\NeZnaikaOwl.normalized.png')
+          $normalized = [Convert]::ToBase64String($owlBytes)
           if (-not $resx.Contains($normalized.Substring(0, [Math]::Min(128, $normalized.Length)))) {
-            throw 'AboutBox.resx does not contain the normalized owl PNG resource.'
+            throw 'AboutBox.resx does not contain the clean owl PNG resource.'
           }
 
           $targets = Get-Content 'Directory.Build.targets' -Raw

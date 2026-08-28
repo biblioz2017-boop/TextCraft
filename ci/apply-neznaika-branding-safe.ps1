@@ -4,7 +4,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 $owlPath = Join-Path $root 'Assets\NeZnaikaOwl.jpg'
-$normalizedOwlPath = Join-Path $root 'Assets\NeZnaikaOwl.normalized.b64'
+$normalizedOwlPath = Join-Path $root 'Assets\NeZnaikaOwl.normalized.png'
 $hiddenOwlPath = Join-Path $root 'Assets\NeZnaikaOwl.jpg.ci-hidden'
 $brandingScript = Join-Path $root 'ci\apply-neznaika-branding.ps1'
 $resxPath = Join-Path $root 'AboutBox.resx'
@@ -28,16 +28,10 @@ finally {
     }
 }
 
-# Do not decode images in CI at all. The user-provided owl was normalized once to a
-# verified PNG and stored as Base64. Validate only its PNG signature and inject the
-# already-normalized bytes directly into the WinForms .resx resource.
-$owlBase64 = [System.IO.File]::ReadAllText($normalizedOwlPath, [System.Text.Encoding]::ASCII)
-$owlBase64 = [regex]::Replace($owlBase64, '\s+', '')
-if ([string]::IsNullOrWhiteSpace($owlBase64)) {
-    throw 'Normalized NeZnaika owl resource is empty.'
-}
-
-$owlBytes = [Convert]::FromBase64String($owlBase64)
+# The clean owl is committed as an actual PNG file. CI never decodes or re-encodes
+# an image: it only validates the PNG signature, Base64-encodes the exact bytes, and
+# injects those bytes into the WinForms .resx resource.
+$owlBytes = [System.IO.File]::ReadAllBytes($normalizedOwlPath)
 $pngSignature = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
 if ($owlBytes.Length -lt $pngSignature.Length) {
     throw 'Normalized NeZnaika owl resource is too short to be a PNG.'
@@ -47,6 +41,7 @@ for ($i = 0; $i -lt $pngSignature.Length; $i++) {
         throw 'Normalized NeZnaika owl resource does not have a valid PNG signature.'
     }
 }
+$owlBase64 = [Convert]::ToBase64String($owlBytes)
 
 $resx = [System.IO.File]::ReadAllText($resxPath, [System.Text.Encoding]::UTF8)
 $logoPattern = '(?s)(<data name="logoPictureBox.Image"[^>]*>\s*<value>).*?(</value>\s*</data>)'
@@ -63,4 +58,4 @@ $resx = [regex]::Replace(
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($resxPath, $resx, $utf8NoBom)
 
-Write-Host ('NeZnaika branding applied; verified pre-normalized PNG owl injected (' + $owlBytes.Length + ' bytes).')
+Write-Host ('NeZnaika branding applied; exact clean PNG owl injected (' + $owlBytes.Length + ' bytes).')
