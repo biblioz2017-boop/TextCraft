@@ -40,6 +40,20 @@ jobs:
           )
           Set-Content $project $xml -Encoding UTF8
 
+      - name: Validate normalized owl resource
+        shell: pwsh
+        run: |
+          $path = 'Assets\NeZnaikaOwl.normalized.b64'
+          if (-not (Test-Path $path)) { throw 'Normalized owl resource is missing.' }
+          $b64 = ((Get-Content $path -Raw) -replace '\s+', '')
+          $bytes = [Convert]::FromBase64String($b64)
+          $sig = [byte[]](0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
+          if ($bytes.Length -lt $sig.Length) { throw 'Normalized owl PNG is too short.' }
+          for ($i = 0; $i -lt $sig.Length; $i++) {
+            if ($bytes[$i] -ne $sig[$i]) { throw 'Normalized owl resource is not a PNG.' }
+          }
+          Write-Host "Verified normalized owl PNG: $($bytes.Length) bytes."
+
       - name: Apply Fast RAG fix
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
@@ -67,6 +81,11 @@ jobs:
           $resx = Get-Content 'AboutBox.resx' -Raw
           if (-not $resx.Contains('name="logoPictureBox.Image"')) {
             throw 'AboutBox image resource is missing.'
+          }
+
+          $normalized = ((Get-Content 'Assets\NeZnaikaOwl.normalized.b64' -Raw) -replace '\s+', '')
+          if (-not $resx.Contains($normalized.Substring(0, [Math]::Min(128, $normalized.Length)))) {
+            throw 'AboutBox.resx does not contain the normalized owl PNG resource.'
           }
 
           $targets = Get-Content 'Directory.Build.targets' -Raw
