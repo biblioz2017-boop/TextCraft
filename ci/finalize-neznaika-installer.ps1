@@ -32,7 +32,7 @@ function Wait-ForWordToClose {
 
 try {
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.14 - Microsoft Word add-in setup' -ForegroundColor Cyan
+    Write-Host 'NeZnaika 1.0.15 - Microsoft Word add-in setup' -ForegroundColor Cyan
     Write-Host '================================================'
 
     Wait-ForWordToClose
@@ -69,7 +69,7 @@ try {
 
     Write-Host '[4/4] Done.'
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.14 was installed successfully.' -ForegroundColor Green
+    Write-Host 'NeZnaika 1.0.15 was installed successfully.' -ForegroundColor Green
     Write-Host 'Open Microsoft Word and use the NeZnaika tab.'
     [void](Read-Host 'Press Enter to close this window')
     exit 0
@@ -85,7 +85,7 @@ catch {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.14 Installer
+title NeZnaika 1.0.15 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
