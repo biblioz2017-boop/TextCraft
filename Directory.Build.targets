@@ -16,6 +16,7 @@
     <Compile Include="$(MSBuildProjectDirectory)\Forge.ModelControl.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\Forge.LogicalLink.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditFix.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditPanel.cs" />
   </ItemGroup>
 
   <Target Name="ApplyNeZnaikaBranding"
