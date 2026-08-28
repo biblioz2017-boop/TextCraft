@@ -124,8 +124,6 @@ if (-not $science.Contains('private void AddForceRagCheckbox()')) {
                 "Можно оставить включенным и не писать каждый раз 'используй материал из RAG'."
             );
 
-            // The quick-action row was originally only 34 px high. Allow a second line so
-            // the checkbox remains visible even in a narrow Word task pane.
             _quickActionsPanel.WrapContents = true;
             if (_mainLayout != null && _mainLayout.RowStyles.Count > 2)
                 _mainLayout.RowStyles[2].Height = 62F;
@@ -176,7 +174,243 @@ if ($science.Contains($oldFinalPrompt)) {
     $science = $science.Replace($oldFinalPrompt, $newFinalPrompt)
 }
 
+# Keep the chat action buttons visible. The scientific evidence panel occupies the
+# bottom of the task pane, so move the response action toolbar into that panel rather
+# than leaving it in a row that can be clipped on narrow Word windows.
+if (-not $science.Contains('_evidencePanel.Controls.Add(_responseActionsPanel);')) {
+    $oldEvidencePanel = @'
+            _evidencePanel = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 155,
+                Padding = new Padding(8, 0, 8, 8)
+            };
+            _evidencePanel.Controls.Add(_evidenceTextBox);
+            _evidencePanel.Controls.Add(evidenceLabel);
+
+            Controls.Add(_evidencePanel);
+            Controls.SetChildIndex(_evidencePanel, 0);
+'@
+    $newEvidencePanel = @'
+            _evidencePanel = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 205,
+                Padding = new Padding(8, 0, 8, 8)
+            };
+
+            if (_mainLayout != null && _mainLayout.RowStyles.Count > 8)
+                _mainLayout.RowStyles[8].Height = 0F;
+
+            _responseActionsPanel.Dock = DockStyle.Bottom;
+            _responseActionsPanel.Height = 64;
+            _responseActionsPanel.WrapContents = true;
+            _responseActionsPanel.AutoScroll = true;
+            _responseActionsPanel.Margin = new Padding(0, 4, 0, 0);
+
+            _evidencePanel.Controls.Add(_evidenceTextBox);
+            _evidencePanel.Controls.Add(evidenceLabel);
+            _evidencePanel.Controls.Add(_responseActionsPanel);
+            _responseActionsPanel.BringToFront();
+
+            Controls.Add(_evidencePanel);
+            Controls.SetChildIndex(_evidencePanel, 0);
+'@
+    if (-not $science.Contains($oldEvidencePanel)) {
+        throw 'Could not locate evidence panel for visible chat actions.'
+    }
+    $science = $science.Replace($oldEvidencePanel, $newEvidencePanel)
+}
+
 Write-Utf8Text $sciencePath $science
+
+Write-Host 'Applying chat-to-Word actions...'
+$chatPath = 'GenerateUserControl.cs'
+$chat = Read-Utf8Text $chatPath
+
+if (-not $chat.Contains('private Button _insertWholeChatButton;')) {
+    $chatFieldsOld = @'
+        private Button _insertButton;
+        private Button _copyButton;
+'@
+    $chatFieldsNew = @'
+        private Button _insertButton;
+        private Button _insertWholeChatButton;
+        private Button _insertSelectedChatButton;
+        private Button _copyButton;
+'@
+    if (-not $chat.Contains($chatFieldsOld)) {
+        throw 'Could not locate chat action fields.'
+    }
+    $chat = $chat.Replace($chatFieldsOld, $chatFieldsNew)
+}
+
+$chat = $chat.Replace('                Text = "Вставить в документ",', '                Text = "Ответ → Word",')
+$chat = $chat.Replace('                Text = "Копировать",', '                Text = "Копировать ответ",')
+$chat = $chat.Replace('                Text = "Очистить",', '                Text = "Очистить чат",')
+
+if (-not $chat.Contains('_responseTextBox.SelectionChanged += ResponseTextBox_SelectionChanged;')) {
+    $actionsPanelAnchor = '            _responseActionsPanel = new FlowLayoutPanel'
+    if (-not $chat.Contains($actionsPanelAnchor)) {
+        throw 'Could not locate response action panel anchor.'
+    }
+    $chat = $chat.Replace(
+        $actionsPanelAnchor,
+        "            _responseTextBox.SelectionChanged += ResponseTextBox_SelectionChanged;`r`n            _responseTextBox.TextChanged += ResponseTextBox_TextChanged;`r`n`r`n" + $actionsPanelAnchor
+    )
+}
+
+if (-not $chat.Contains('_insertWholeChatButton = new Button')) {
+    $insertButtonAnchor = '            _insertButton.Click += InsertButton_Click;'
+    $insertButtons = @'
+            _insertButton.Click += InsertButton_Click;
+
+            _insertWholeChatButton = new Button
+            {
+                Text = "Весь чат → Word",
+                AutoSize = true,
+                Height = 28,
+                Enabled = false
+            };
+            _insertWholeChatButton.Click += InsertWholeChatButton_Click;
+
+            _insertSelectedChatButton = new Button
+            {
+                Text = "Выделенное → Word",
+                AutoSize = true,
+                Height = 28,
+                Enabled = false
+            };
+            _insertSelectedChatButton.Click += InsertSelectedChatButton_Click;
+'@
+    if (-not $chat.Contains($insertButtonAnchor)) {
+        throw 'Could not locate last-response insert button.'
+    }
+    $chat = $chat.Replace($insertButtonAnchor, $insertButtons.TrimEnd("`r", "`n"))
+}
+
+if (-not $chat.Contains('_responseActionsPanel.Controls.Add(_insertWholeChatButton);')) {
+    $oldActionList = @'
+            _responseActionsPanel.Controls.Add(_insertButton);
+            _responseActionsPanel.Controls.Add(_copyButton);
+            _responseActionsPanel.Controls.Add(_clearButton);
+'@
+    $newActionList = @'
+            _responseActionsPanel.Controls.Add(_insertButton);
+            _responseActionsPanel.Controls.Add(_insertWholeChatButton);
+            _responseActionsPanel.Controls.Add(_insertSelectedChatButton);
+            _responseActionsPanel.Controls.Add(_copyButton);
+            _responseActionsPanel.Controls.Add(_clearButton);
+'@
+    if (-not $chat.Contains($oldActionList)) {
+        throw 'Could not locate response action control list.'
+    }
+    $chat = $chat.Replace($oldActionList, $newActionList)
+}
+
+if (-not $chat.Contains('private void InsertWholeChatButton_Click')) {
+    $copyHandlerAnchor = '        private void CopyButton_Click(object sender, EventArgs e)'
+    $chatHandlers = @'
+        private void InsertWholeChatButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string chatText = (_responseTextBox.Text ?? string.Empty).Trim();
+                if (chatText.Length == 0)
+                    return;
+
+                InsertPlainChatTextIntoDocument(chatText);
+            }
+            catch (Exception ex)
+            {
+                CommonUtils.DisplayError(ex);
+            }
+        }
+
+        private void InsertSelectedChatButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string selectedText = _responseTextBox.SelectedText ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(selectedText))
+                {
+                    MessageBox.Show(
+                        "Сначала выделите мышью нужный фрагмент в окне «Диалог / ответ».",
+                        "TextCraft",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                    return;
+                }
+
+                InsertPlainChatTextIntoDocument(selectedText);
+            }
+            catch (Exception ex)
+            {
+                CommonUtils.DisplayError(ex);
+            }
+        }
+
+        private static void InsertPlainChatTextIntoDocument(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            Word.Range insertionRange = Globals.ThisAddIn.Application.Selection.Range.Duplicate;
+            insertionRange.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
+            insertionRange.Text = WordMarkdown.RemoveMarkdownSyntax(text.Trim());
+            Globals.ThisAddIn.Application.Selection.SetRange(insertionRange.End, insertionRange.End);
+        }
+
+        private void ResponseTextBox_SelectionChanged(object sender, EventArgs e)
+        {
+            UpdateChatActionButtons();
+        }
+
+        private void ResponseTextBox_TextChanged(object sender, EventArgs e)
+        {
+            UpdateChatActionButtons();
+        }
+
+        private void UpdateChatActionButtons()
+        {
+            if (_responseTextBox == null)
+                return;
+
+            bool hasChat = _responseTextBox.TextLength > 0;
+            if (_insertWholeChatButton != null)
+                _insertWholeChatButton.Enabled = hasChat;
+            if (_insertSelectedChatButton != null)
+                _insertSelectedChatButton.Enabled = hasChat && _responseTextBox.SelectionLength > 0;
+            if (_clearButton != null)
+                _clearButton.Enabled = hasChat;
+        }
+
+'@
+    if (-not $chat.Contains($copyHandlerAnchor)) {
+        throw 'Could not locate CopyButton handler for chat action methods.'
+    }
+    $chat = $chat.Replace($copyHandlerAnchor, $chatHandlers + $copyHandlerAnchor)
+}
+
+$oldClearTail = @'
+            _lastTemplateName = string.Empty;
+            _insertButton.Enabled = false;
+            _copyButton.Enabled = false;
+        }
+'@
+$newClearTail = @'
+            _lastTemplateName = string.Empty;
+            _insertButton.Enabled = false;
+            _copyButton.Enabled = false;
+            UpdateChatActionButtons();
+        }
+'@
+if ($chat.Contains($oldClearTail)) {
+    $chat = $chat.Replace($oldClearTail, $newClearTail)
+}
+
+Write-Utf8Text $chatPath $chat
 
 Write-Host 'Applying explicit default-model UI patch...'
 $designerPath = 'Forge.Designer.cs'
@@ -239,4 +473,4 @@ if ($forge.Contains($oldDefaultHandler)) {
 
 Write-Utf8Text $forgePath $forge
 
-Write-Host 'RAG follow-up retrieval, force-RAG checkbox, UTF-8-safe patching, and explicit default-model selection prepared.'
+Write-Host 'RAG follow-up retrieval, strict chat actions, UTF-8-safe patching, and explicit default-model selection prepared.'
