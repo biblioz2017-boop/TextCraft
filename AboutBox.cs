@@ -18,38 +18,20 @@ namespace TextForge
 
         public AboutBox()
         {
-            try
-            {
-                InitializeComponent();
+            InitializeComponent();
 
-                this.Text = "О программе — НеZнайка";
-                this.labelProductName.Text = "НеZнайка";
-                this.labelVersion.Text = "Версия " + AssemblyVersion;
-                this.labelCopyright.Text = AssemblyCopyright;
-                this.labelCompanyName.Text = "Локальная AI-надстройка для Microsoft Word";
+            this.Text = "О программе — НеZнайка";
+            this.labelProductName.Text = "НеZнайка";
+            this.labelVersion.Text = "Версия " + AssemblyVersion;
+            this.labelCopyright.Text = AssemblyCopyright;
+            this.labelCompanyName.Text = "Локальная AI-надстройка для Microsoft Word";
 
-                // Give the description enough room; the original TextCraft dialog was too small.
-                this.Size = new Size(840, 560);
-                this.tableLayoutPanel.Dock = DockStyle.Fill;
+            // The original TextCraft About window is too small for the requested text.
+            this.Size = new Size(840, 560);
+            this.tableLayoutPanel.Dock = DockStyle.Fill;
 
-                TryApplyOwlLogo();
-                ConfigureAboutText();
-            }
-            catch (Exception ex)
-            {
-                // The About window must never break add-in startup. Show a minimal dialog
-                // rather than surfacing an initialization ArgumentException in Word.
-                try
-                {
-                    MessageBox.Show(
-                        "НеZнайка " + AssemblyVersion + "\r\n\r\n" + ex.Message,
-                        "О программе — НеZнайка",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information
-                    );
-                }
-                catch { }
-            }
+            TryApplyOwlLogo();
+            ConfigureAboutText();
         }
 
         private void TryApplyOwlLogo()
@@ -68,8 +50,8 @@ namespace TextForge
             }
             catch
             {
-                // Keep the original embedded picture if the custom image cannot be decoded.
-                // Importantly, do not abort the rest of the About dialog initialization.
+                // A logo problem must never prevent opening the About window.
+                this.logoPictureBox.Image = null;
             }
         }
 
@@ -98,14 +80,8 @@ namespace TextForge
 
             this.tableLayoutPanel.Controls.Add(_aboutTextBox, column, row);
 
-            AppendAboutParagraph(
-                "Надстройка, созданная во имя текста, правок и человеческих страданий.",
-                true
-            );
-            AppendAboutParagraph(
-                "НеZнайка умеет ковырять текст, шаманить над формулировками, совершать обряды форматирования и делать прочие вещи, которые нормальный человек предпочёл бы поручить кому-нибудь другому.",
-                false
-            );
+            AppendAboutParagraph("Надстройка, созданная во имя текста, правок и человеческих страданий.", true);
+            AppendAboutParagraph("НеZнайка умеет ковырять текст, шаманить над формулировками, совершать обряды форматирования и делать прочие вещи, которые нормальный человек предпочёл бы поручить кому-нибудь другому.", false);
             AppendAboutParagraph("Если документ стал лучше — так и было задумано.", false);
             AppendAboutParagraph("Если стал хуже — это авторский стиль.", false);
             AppendAboutParagraph("Если кончилась оперативка — значит, таинство началось.", false);
