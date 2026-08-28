@@ -3,5 +3,6 @@
           BeforeTargets="BeforeCompile"
           Condition="'$(MSBuildProjectName)' == 'TextCraft'">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-chat-and-default-model.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-long-response-control.ps1&quot;" />
   </Target>
 </Project>
