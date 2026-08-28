@@ -56,6 +56,115 @@ $rag = $rag.Replace(
 
 Set-Content $ragPath $rag -Encoding UTF8
 
+Write-Host 'Applying force-RAG supplement checkbox...'
+$sciencePath = 'GenerateUserControl.Science.cs'
+$science = Get-Content $sciencePath -Raw
+
+if (-not $science.Contains('private CheckBox _forceRagCheckBox;')) {
+    $fieldAnchor = '        private Timer _chatRedrawTimer;'
+    if (-not $science.Contains($fieldAnchor)) {
+        throw 'Could not locate chat UI field anchor for force-RAG checkbox.'
+    }
+
+    $fieldInsert = @'
+        private Timer _chatRedrawTimer;
+        private CheckBox _forceRagCheckBox;
+        private ToolTip _forceRagToolTip;
+'@
+    $science = $science.Replace($fieldAnchor, $fieldInsert.TrimEnd("`r", "`n"))
+}
+
+if (-not $science.Contains('AddForceRagCheckbox();')) {
+    $loadAnchor = @'
+            AddScientificQuickActions();
+            AddEvidencePanel();
+'@
+    $loadInsert = @'
+            AddScientificQuickActions();
+            AddForceRagCheckbox();
+            AddEvidencePanel();
+'@
+    if (-not $science.Contains($loadAnchor)) {
+        throw 'Could not locate chat OnLoad action block for force-RAG checkbox.'
+    }
+    $science = $science.Replace($loadAnchor, $loadInsert)
+}
+
+if (-not $science.Contains('private void AddForceRagCheckbox()')) {
+    $methodAnchor = '        private void AddEvidencePanel()'
+    $methodInsert = @'
+        private void AddForceRagCheckbox()
+        {
+            _forceRagCheckBox = new CheckBox
+            {
+                Text = "RAG: использовать и дополнять текст",
+                Checked = true,
+                AutoSize = true,
+                Height = 26,
+                Margin = new Padding(2, 3, 6, 2)
+            };
+
+            _forceRagToolTip = new ToolTip();
+            _forceRagToolTip.SetToolTip(
+                _forceRagCheckBox,
+                "Принудительно использовать отмеченные PDF/RAG и дополнять ответ новыми подтвержденными сведениями. " +
+                "Можно оставить включенным и не писать каждый раз 'используй материал из RAG'."
+            );
+
+            // The quick-action row was originally only 34 px high. Allow a second line so
+            // the checkbox remains visible even in a narrow Word task pane.
+            _quickActionsPanel.WrapContents = true;
+            if (_mainLayout != null && _mainLayout.RowStyles.Count > 2)
+                _mainLayout.RowStyles[2].Height = 62F;
+
+            _quickActionsPanel.Controls.Add(_forceRagCheckBox);
+            _quickActionsPanel.Controls.SetChildIndex(_forceRagCheckBox, 0);
+        }
+
+'@
+    if (-not $science.Contains($methodAnchor)) {
+        throw 'Could not locate evidence-panel method anchor for force-RAG checkbox.'
+    }
+    $science = $science.Replace($methodAnchor, $methodInsert + $methodAnchor)
+}
+
+$oldAlways = '            messages.Add(new UserChatMessage(AlwaysUseRagInstruction));'
+$newAlways = @'
+            if (_forceRagCheckBox != null && _forceRagCheckBox.Checked)
+                messages.Add(new UserChatMessage(AlwaysUseRagInstruction));
+'@
+if ($science.Contains($oldAlways)) {
+    $science = $science.Replace($oldAlways, $newAlways.TrimEnd("`r", "`n"))
+}
+
+$oldFinalPrompt = @'
+            string retrievalQuery = BuildRagRetrievalQuery(userQuery);
+            string finalPrompt =
+                "Текущий запрос пользователя: " + userQuery + "\n" +
+                "Тема для семантического поиска в RAG: " + retrievalQuery + "\n\n" +
+                "Ответь именно на текущий запрос. Если выше передан RAG-контекст, обязательно используй его. " +
+                "Для продолжения предыдущего ответа добавляй новые сведения из RAG и не повторяй старый текст дословно.";
+'@
+$newFinalPrompt = @'
+            string retrievalQuery = BuildRagRetrievalQuery(userQuery);
+            bool forceRag = _forceRagCheckBox != null && _forceRagCheckBox.Checked;
+            string ragBehavior = forceRag
+                ? "Режим принудительного RAG включен. Обязательно используй релевантные сведения из отмеченных PDF, " +
+                  "дополни ими текст или предыдущий ответ, добавляй только новые подтвержденные сведения и сохраняй ссылки на источник/страницу. " +
+                  "Не повторяй предыдущий ответ целиком и не подменяй RAG знаниями модели."
+                : "Ответь на текущий запрос с учетом предыдущего диалога. RAG-контекст можно использовать как дополнительный источник, если он релевантен.";
+
+            string finalPrompt =
+                "Текущий запрос пользователя: " + userQuery + "\n" +
+                "Тема для семантического поиска в RAG: " + retrievalQuery + "\n\n" +
+                ragBehavior;
+'@
+if ($science.Contains($oldFinalPrompt)) {
+    $science = $science.Replace($oldFinalPrompt, $newFinalPrompt)
+}
+
+Set-Content $sciencePath $science -Encoding UTF8
+
 Write-Host 'Applying explicit default-model UI patch...'
 $designerPath = 'Forge.Designer.cs'
 $designer = Get-Content $designerPath -Raw
@@ -119,4 +228,4 @@ if ($forge.Contains($oldDefaultHandler)) {
 
 Set-Content $forgePath $forge -Encoding UTF8
 
-Write-Host 'RAG follow-up retrieval and explicit default-model selection prepared.'
+Write-Host 'RAG follow-up retrieval, force-RAG checkbox, and explicit default-model selection prepared.'
