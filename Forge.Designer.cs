@@ -30,7 +30,7 @@ namespace TextForge
 
         private void Localize()
         {
-            this.ForgeTab.Label = "neZnaika";
+            this.ForgeTab.Label = "НеZнайка";
             this.ToolsGroup.Label = "Работа с текстом";
             this.SourcesGroup.Label = "Источники";
             this.SettingsGroup.Label = "Модель";
@@ -59,7 +59,7 @@ namespace TextForge
             this.RAGControlButton.SuperTip = "Добавить или удалить PDF-файлы для локального поиска по литературе и источникам.";
             this.StatusLabel.Label = "● Готово";
             this.ModelListDropDown.Label = "Модель";
-            this.ModelListDropDown.SuperTip = "Выбрать локальную языковую модель neZnaika.";
+            this.ModelListDropDown.SuperTip = "Выбрать локальную языковую модель НеZнайка.";
             this.DefaultCheckBox.Visible = false;
             this.InfoGroup.Label = "Информация";
             this.AboutButton.Label = "О программе";
@@ -124,7 +124,7 @@ namespace TextForge
             this.ForgeTab.Groups.Add(this.SettingsGroup);
             this.ForgeTab.Groups.Add(this.InfoGroup);
             this.ForgeTab.Groups.Add(this.OptionsGroup);
-            this.ForgeTab.Label = "neZnaika";
+            this.ForgeTab.Label = "НеZнайка";
             this.ForgeTab.Name = "ForgeTab";
 
             this.ToolsGroup.Items.Add(this.ImproveButton);
@@ -271,7 +271,7 @@ namespace TextForge
             this.OptionsGroup.Items.Add(this.CancelButton);
             this.OptionsGroup.Label = "Выполнение";
             this.OptionsGroup.Name = "OptionsGroup";
-            this.CancelButton.Image = global::TextForge.Properties.Resources.cross_mark_high_contrast;
+            this.CancelButton.Image = global::TextForge.Properties.Resources.stop_sign_flat;
             this.CancelButton.Label = "Стоп";
             this.CancelButton.Name = "CancelButton";
             this.CancelButton.ShowImage = true;
@@ -339,5 +339,13 @@ namespace TextForge
         internal Microsoft.Office.Tools.Ribbon.RibbonCheckBox DefaultCheckBox;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton AboutButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton CancelButton;
+    }
+
+    partial class ThisRibbonCollection
+    {
+        internal Forge Forge
+        {
+            get { return this.GetRibbon<Forge>(); }
+        }
     }
 }
