@@ -1,6 +1,4 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <!-- User-facing VSTO identity. Keep the internal assembly/file name TextCraft for
-       compatibility, but make Word and the deployment manifest show НеZнайка. -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'TextCraft'">
     <ProductName>НеZнайка</ProductName>
     <FriendlyName>НеZнайка</FriendlyName>
@@ -9,18 +7,14 @@
     <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
   </PropertyGroup>
 
-  <!-- Embed the owl as raw PNG bytes, not as a System.Drawing.Image inside .resx.
-       LogicalName is fixed so AboutBox can load the resource deterministically. -->
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'TextCraft'">
-    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\NeZnaikaOwl.normalized.png">
-      <LogicalName>TextForge.NeZnaikaOwl.png</LogicalName>
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\NeZnaikaOwl.jpg">
+      <LogicalName>TextForge.NeZnaikaOwl.jpg</LogicalName>
       <Type>Non-Resx</Type>
       <WithCulture>false</WithCulture>
     </EmbeddedResource>
   </ItemGroup>
 
-  <!-- Branding must run before CoreResGen because it removes the legacy Bitmap from
-       AboutBox.resx before MSBuild's GenerateResource task sees the form resource. -->
   <Target Name="ApplyNeZnaikaBranding"
           BeforeTargets="CoreResGen"
           Condition="'$(MSBuildProjectName)' == 'TextCraft'">
