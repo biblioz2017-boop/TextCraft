@@ -69,29 +69,31 @@ jobs:
             'НеZнайка',
             'Надстройка, созданная во имя текста, правок и человеческих страданий.',
             'Вместе с НеZнайкой мы натянем любую сову на глобус!',
-            'И не забывайте страдать!'
+            'И не забывайте страдать!',
+            'TextForge.NeZnaikaOwl.png'
           )) {
             if (-not $about.Contains($marker)) { throw "Missing About marker: $marker" }
           }
 
-          if (-not (Test-Path 'Assets\NeZnaikaOwl.jpg')) {
-            throw 'NeZnaika owl source image is missing.'
-          }
-          $resx = Get-Content 'AboutBox.resx' -Raw
-          if (-not $resx.Contains('name="logoPictureBox.Image"')) {
-            throw 'AboutBox image resource is missing.'
+          if (-not (Test-Path 'Assets\NeZnaikaOwl.normalized.png')) {
+            throw 'NeZnaika embedded owl PNG is missing.'
           }
 
-          $owlBytes = [System.IO.File]::ReadAllBytes('Assets\NeZnaikaOwl.normalized.png')
-          $normalized = [Convert]::ToBase64String($owlBytes)
-          if (-not $resx.Contains($normalized.Substring(0, [Math]::Min(128, $normalized.Length)))) {
-            throw 'AboutBox.resx does not contain the clean owl PNG resource.'
+          $resx = Get-Content 'AboutBox.resx' -Raw
+          if ($resx.Contains('name="logoPictureBox.Image"')) {
+            throw 'AboutBox.resx still contains a System.Drawing.Image; GDI+ build failure can recur.'
           }
 
           $targets = Get-Content 'Directory.Build.targets' -Raw
-          if (-not $targets.Contains('<ApplicationVersion>1.0.14.0</ApplicationVersion>')) {
-            throw 'НеZнайка application version is not 1.0.14.0.'
+          foreach ($marker in @(
+            '<ApplicationVersion>1.0.14.0</ApplicationVersion>',
+            'NeZnaikaOwl.normalized.png',
+            '<LogicalName>TextForge.NeZnaikaOwl.png</LogicalName>',
+            '<Type>Non-Resx</Type>'
+          )) {
+            if (-not $targets.Contains($marker)) { throw "Missing build target marker: $marker" }
           }
+
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
             throw 'Primary НеZнайка installer is missing.'
           }

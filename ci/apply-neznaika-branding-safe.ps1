@@ -28,9 +28,7 @@ finally {
     }
 }
 
-# The clean owl is committed as an actual PNG file. CI never decodes or re-encodes
-# an image: it only validates the PNG signature, Base64-encodes the exact bytes, and
-# injects those bytes into the WinForms .resx resource.
+# Validate the committed clean PNG without decoding or re-encoding it.
 $owlBytes = [System.IO.File]::ReadAllBytes($normalizedOwlPath)
 $pngSignature = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
 if ($owlBytes.Length -lt $pngSignature.Length) {
@@ -41,21 +39,21 @@ for ($i = 0; $i -lt $pngSignature.Length; $i++) {
         throw 'Normalized NeZnaika owl resource does not have a valid PNG signature.'
     }
 }
-$owlBase64 = [Convert]::ToBase64String($owlBytes)
 
+# IMPORTANT: remove the Image object from the WinForms resx completely. Keeping a
+# System.Drawing.Bitmap in AboutBox.resx makes MSBuild GenerateResource serialize it
+# through GDI+, which is exactly where the Windows runner was failing with MSB4018.
+# The PNG itself is now a raw EmbeddedResource declared in Directory.Build.targets.
 $resx = [System.IO.File]::ReadAllText($resxPath, [System.Text.Encoding]::UTF8)
-$logoPattern = '(?s)(<data name="logoPictureBox.Image"[^>]*>\s*<value>).*?(</value>\s*</data>)'
-if (-not [regex]::IsMatch($resx, $logoPattern)) {
-    throw 'Could not locate logoPictureBox.Image in AboutBox.resx.'
+$logoPattern = '(?s)\s*<data name="logoPictureBox.Image"[^>]*>.*?</data>\s*'
+if ([regex]::IsMatch($resx, $logoPattern)) {
+    $resx = [regex]::Replace($resx, $logoPattern, "`r`n", 1)
 }
-$resx = [regex]::Replace(
-    $resx,
-    $logoPattern,
-    { param($m) $m.Groups[1].Value + "`r`n        " + $owlBase64 + "`r`n      " + $m.Groups[2].Value },
-    1
-)
+if ($resx.Contains('name="logoPictureBox.Image"')) {
+    throw 'Failed to remove logoPictureBox.Image from AboutBox.resx.'
+}
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($resxPath, $resx, $utf8NoBom)
 
-Write-Host ('NeZnaika branding applied; exact clean PNG owl injected (' + $owlBytes.Length + ' bytes).')
+Write-Host ('NeZnaika branding applied; AboutBox Image removed from resx; raw PNG manifest resource validated (' + $owlBytes.Length + ' bytes).')

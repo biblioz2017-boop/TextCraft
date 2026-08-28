@@ -9,9 +9,18 @@
     <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
   </PropertyGroup>
 
-  <!-- Branding edits AboutBox.resx, so it must run before CoreResGen. This makes the
-       normal project build validate the final image resource instead of discovering
-       a malformed .resx only during the later MSI/solution build. -->
+  <!-- Embed the owl as raw PNG bytes, not as a System.Drawing.Image inside .resx.
+       LogicalName is fixed so AboutBox can load the resource deterministically. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\NeZnaikaOwl.normalized.png">
+      <LogicalName>TextForge.NeZnaikaOwl.png</LogicalName>
+      <Type>Non-Resx</Type>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- Branding must run before CoreResGen because it removes the legacy Bitmap from
+       AboutBox.resx before MSBuild's GenerateResource task sees the form resource. -->
   <Target Name="ApplyNeZnaikaBranding"
           BeforeTargets="CoreResGen"
           Condition="'$(MSBuildProjectName)' == 'TextCraft'">
