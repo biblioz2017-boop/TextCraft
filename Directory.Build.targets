@@ -15,6 +15,7 @@
     </EmbeddedResource>
     <Compile Include="$(MSBuildProjectDirectory)\Forge.ModelControl.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\Forge.LogicalLink.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditFix.cs" />
   </ItemGroup>
 
   <Target Name="ApplyNeZnaikaBranding"
