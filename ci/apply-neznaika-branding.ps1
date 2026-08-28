@@ -32,6 +32,18 @@ if (Test-Path $assemblyPath) {
     Write-Utf8Text $assemblyPath $assembly
 }
 
+# Make the VSTO deployment metadata user-facing as НеZнайка while retaining the
+# internal assembly/file names TextCraft.dll and TextCraft.vsto for compatibility.
+$projectPath = 'TextCraft.csproj'
+if (Test-Path $projectPath) {
+    $project = Read-Utf8Text $projectPath
+    $project = [regex]::Replace($project, '<ApplicationVersion>[^<]*</ApplicationVersion>', '<ApplicationVersion>1.0.14.0</ApplicationVersion>')
+    $project = [regex]::Replace($project, '<ProductName>[^<]*</ProductName>', '<ProductName>НеZнайка</ProductName>')
+    $project = [regex]::Replace($project, '<FriendlyName>[^<]*</FriendlyName>', '<FriendlyName>НеZнайка</FriendlyName>')
+    $project = [regex]::Replace($project, '<OfficeApplicationDescription>[^<]*</OfficeApplicationDescription>', '<OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>')
+    Write-Utf8Text $projectPath $project
+}
+
 $designerPath = 'Forge.Designer.cs'
 if (Test-Path $designerPath) {
     $designer = Read-Utf8Text $designerPath
@@ -39,6 +51,66 @@ if (Test-Path $designerPath) {
     $designer = $designer.Replace('this.ForgeTab.Label = "TextCraft";', 'this.ForgeTab.Label = "НеZнайка";')
     $designer = $designer.Replace('Выбрать локальную языковую модель neZnaika.', 'Выбрать локальную языковую модель НеZнайка.')
     Write-Utf8Text $designerPath $designer
+}
+
+# The About form used to be created on InitializeForge's worker STA thread and then
+# shown on Word's UI thread. Windows Forms/GDI+ objects must not be moved between UI
+# threads; this was a plausible source of ArgumentException("Недопустимый параметр").
+# Create and dispose the dialog directly from the ribbon click handler instead.
+$forgePath = 'Forge.cs'
+if (Test-Path $forgePath) {
+    $forge = Read-Utf8Text $forgePath
+    $forge = [regex]::Replace(
+        $forge,
+        '(?m)^\s*_box = new AboutBox\(\);\s*\r?\n',
+        ''
+    )
+
+    $aboutHandlerPattern = '(?s)        private void AboutButton_Click\(object sender, RibbonControlEventArgs e\)\s*\{.*?\n        \}\s*\n\s*        private void CancelButton_Click'
+    $aboutHandlerReplacement = @'
+        private void AboutButton_Click(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                using (AboutBox box = new AboutBox())
+                    box.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                CommonUtils.DisplayError(ex);
+            }
+        }
+
+        private void CancelButton_Click
+'@
+    if ([regex]::IsMatch($forge, $aboutHandlerPattern)) {
+        $forge = [regex]::Replace($forge, $aboutHandlerPattern, $aboutHandlerReplacement, 1)
+    } else {
+        throw 'Could not locate AboutButton_Click for UI-thread-safe dialog creation.'
+    }
+    Write-Utf8Text $forgePath $forge
+}
+
+# Embed the exact user-provided owl-with-globe picture through AboutBox.resx. This is
+# more reliable than decoding image strings at runtime and guarantees that the image
+# visible in the designer resource is the image shipped in TextCraft.dll.
+$owlPath = 'Assets/NeZnaikaOwl.jpg'
+$resxPath = 'AboutBox.resx'
+if ((Test-Path $owlPath) -and (Test-Path $resxPath)) {
+    $owlBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Resolve-Path $owlPath).Path))
+    $resx = Read-Utf8Text $resxPath
+    $logoPattern = '(?s)(<data name="logoPictureBox.Image"[^>]*>\s*<value>).*?(</value>\s*</data>)'
+    if (-not [regex]::IsMatch($resx, $logoPattern)) {
+        throw 'Could not locate logoPictureBox.Image in AboutBox.resx.'
+    }
+    $resx = [regex]::Replace(
+        $resx,
+        $logoPattern,
+        { param($m) $m.Groups[1].Value + "`r`n        " + $owlBase64 + "`r`n      " + $m.Groups[2].Value },
+        1
+    )
+    Write-Utf8Text $resxPath $resx
+    Write-Host 'Embedded verified owl-with-globe image into AboutBox.resx.'
 }
 
 $setupPath = 'OfficeAddInSetup/OfficeAddInSetup.vdproj'
@@ -127,9 +199,6 @@ $readme = @'
 ВАЖНО: для установки запускайте файл:
     00_INSTALL-NeZnaika.cmd
 
-Не используйте Install-TextCraft.cmd из старой CI-обвязки — он оставлен только
-для совместимости старого workflow.
-
 Установка:
 1. Закройте Microsoft Word.
 2. Запустите 00_INSTALL-NeZnaika.cmd.
@@ -143,4 +212,4 @@ $readme = @'
 Write-Utf8Text 'artifact/00_README-FIRST-NeZnaika.txt' $readme
 Write-Utf8Text 'artifact/README-FIRST-NeZnaika.txt' $readme
 
-Write-Host 'НеZнайка branding, version 1.0.14 and installer bundle prepared.'
+Write-Host 'НеZнайка branding, version 1.0.14, owl resource and installer bundle prepared.'
