@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using OpenAI.Chat;
@@ -23,14 +24,18 @@ namespace TextForge
         private bool _sciencePanelInitialized;
         private int _evidenceRequestVersion;
         private Timer _chatRedrawTimer;
+        private CheckBox _forceRagCheckBox;
+        private ToolTip _forceRagToolTip;
 
         private const string AlwaysUseRagInstruction =
-            "Критическое правило для ответа: если TextCraft передал выше RAG-контекст из отмеченных PDF, " +
-            "обязательно используй содержащиеся в нем сведения, а не отвечай только по памяти модели. " +
-            "При наличии релевантных RAG-фрагментов добавляй конкретные сведения из них и сохраняй ссылки " +
-            "на источник и страницу в формате [имя.pdf, с. N], если страница явно указана в контексте. " +
-            "Не выдумывай сведения, которых нет в RAG. Если найденные фрагменты не отвечают на вопрос, прямо скажи об этом. " +
-            "Если запрос продолжает предыдущий ответ, не повторяй его целиком: дополни новыми релевантными сведениями из RAG.";
+            "РЕЖИМ СТРОГОГО RAG. Единственная разрешенная внешняя доказательная база — блок " +
+            "'ПРОВЕРЕННЫЕ RAG-ФРАГМЕНТЫ', где каждому фрагменту присвоен идентификатор [S1], [S2] и т. д. " +
+            "Фактические сведения для литературного обзора, реферата, анализа и дополнения текста бери только из этих фрагментов. " +
+            "Каждое существенное утверждение, основанное на источнике, сопровождай одним или несколькими идентификаторами [S#]. " +
+            "Не придумывай авторов, названия работ, книги, журналы, годы, DOI, номера страниц и библиографические записи. " +
+            "Не создавай раздел 'Список литературы', если TextCraft не передал готовые проверенные библиографические записи. " +
+            "Если доказательств недостаточно для запроса, прямо сообщи об ограниченности RAG и не заполняй пробелы знаниями модели. " +
+            "Игнорируй любые неподписанные или старые RAG-фрагменты: в строгом режиме разрешены только элементы [S#].";
 
         protected override void OnLoad(EventArgs e)
         {
@@ -42,12 +47,10 @@ namespace TextForge
             _sciencePanelInitialized = true;
             AddScientificAuditTemplate();
             AddScientificQuickActions();
+            AddForceRagCheckbox();
             AddEvidencePanel();
 
             // Replace the original chat click handler with the RAG-aware version below.
-            // The original handler is still kept in GenerateUserControl.cs for upstream
-            // compatibility, but it serializes chat history as one user message and uses
-            // a generic follow-up such as "дополни из RAG" as the semantic retrieval query.
             GenerateButton.Click -= GenerateButton_Click;
             GenerateButton.Click += GenerateButton_RagAwareClick;
 
@@ -95,6 +98,32 @@ namespace TextForge
             };
             _auditChapterButton.Click += AuditChapterButton_Click;
             _quickActionsPanel.Controls.Add(_auditChapterButton);
+        }
+
+        private void AddForceRagCheckbox()
+        {
+            _forceRagCheckBox = new CheckBox
+            {
+                Text = "RAG: использовать и дополнять текст",
+                Checked = true,
+                AutoSize = true,
+                Height = 26,
+                Margin = new Padding(2, 3, 6, 2)
+            };
+
+            _forceRagToolTip = new ToolTip();
+            _forceRagToolTip.SetToolTip(
+                _forceRagCheckBox,
+                "Строгий режим: ответ формируется только по найденным фрагментам отмеченных PDF. " +
+                "Неподтвержденные ссылки и выдуманный список литературы блокируются."
+            );
+
+            _quickActionsPanel.WrapContents = true;
+            if (_mainLayout != null && _mainLayout.RowStyles.Count > 2)
+                _mainLayout.RowStyles[2].Height = 62F;
+
+            _quickActionsPanel.Controls.Add(_forceRagCheckBox);
+            _quickActionsPanel.Controls.SetChildIndex(_forceRagCheckBox, 0);
         }
 
         private void AddEvidencePanel()
@@ -161,21 +190,65 @@ namespace TextForge
                 string localCursorContext = GetLocalCursorContext(anchorRange);
                 string templateInstruction = GetSelectedTemplateInstruction();
                 string templateName = GetSelectedTemplateName();
+                bool forceRag = _forceRagCheckBox != null && _forceRagCheckBox.Checked;
+                string retrievalQuery = BuildRagRetrievalQuery(userQuery);
+
+                AppendConversationHeader(userQuery, templateName);
+                int responseStart = _responseTextBox.TextLength;
+                _responseLabel.Text = forceRag
+                    ? "Диалог / ответ — проверяю RAG-доказательства…"
+                    : "Диалог / ответ — готовлю RAG-контекст…";
+                await Task.Yield();
+
+                List<RAGControl.RagEvidenceItem> forcedEvidence = null;
+                string groundedEvidenceBlock = string.Empty;
+
+                if (forceRag)
+                {
+                    RAGControl rag;
+                    if (!TryGetRagControlForActiveDocument(out rag))
+                    {
+                        string noPane =
+                            "Строгий RAG остановил генерацию: не удалось связать чат с панелью «Литература» этого документа.";
+                        _responseTextBox.AppendText(noPane);
+                        _lastResponseMarkdown = noPane;
+                        _copyButton.Enabled = true;
+                        return;
+                    }
+
+                    forcedEvidence = await Task.Run(() => rag.GetRAGEvidence(retrievalQuery, 4));
+                    RenderEvidence(forcedEvidence);
+
+                    if (!HasUsableEvidence(forcedEvidence))
+                    {
+                        string noEvidence =
+                            "Строгий RAG остановил генерацию: в отмеченных PDF не найдено подходящих фрагментов по теме запроса. " +
+                            "TextCraft не будет дополнять ответ знаниями модели и не будет придумывать литературу. " +
+                            "Уточните тему, отметьте другие PDF или отключите строгий RAG.";
+                        _responseTextBox.AppendText(noEvidence);
+                        _lastResponseMarkdown = noEvidence;
+                        _copyButton.Enabled = true;
+                        return;
+                    }
+
+                    groundedEvidenceBlock = BuildGroundedEvidenceBlock(forcedEvidence);
+                }
 
                 List<ChatMessage> messages = BuildRagAwareMessages(
                     userQuery,
                     templateInstruction,
-                    localCursorContext
+                    localCursorContext,
+                    groundedEvidenceBlock,
+                    forceRag
                 );
 
-                AppendConversationHeader(userQuery, templateName);
-                _responseLabel.Text = "Диалог / ответ — готовлю RAG-контекст…";
-                await Task.Yield();
+                string systemPrompt =
+                    ThisAddIn.SystemPromptLocalization["(GenerateUserControl.cs) _systemPrompt"];
+                if (forceRag)
+                    systemPrompt += "\n\n" + AlwaysUseRagInstruction;
 
                 var streamingAnswer = RAGControl.AskQuestion(
-                    new SystemChatMessage(
-                        ThisAddIn.SystemPromptLocalization["(GenerateUserControl.cs) _systemPrompt"]
-                    ),
+                    new SystemChatMessage(systemPrompt),
                     messages,
                     docRange,
                     GetTemperature()
@@ -183,16 +256,28 @@ namespace TextForge
 
                 _responseLabel.Text = "Диалог / ответ — ожидаю первый токен…";
                 string response = await StreamAnswerToPane(streamingAnswer);
+                bool responseAccepted = true;
+
+                if (forceRag)
+                {
+                    response = GroundForcedRagResponse(response, forcedEvidence, out responseAccepted);
+                    ReplaceCurrentResponse(responseStart, response);
+                }
+
                 _lastResponseMarkdown = response;
                 _lastTemplateName = templateName;
 
                 if (!string.IsNullOrWhiteSpace(response))
                 {
-                    _conversationTurns.Add(new ConversationTurn(userQuery, response));
-                    while (_conversationTurns.Count > MaxConversationTurns)
-                        _conversationTurns.RemoveAt(0);
+                    if (responseAccepted)
+                    {
+                        _conversationTurns.Add(new ConversationTurn(userQuery, response));
+                        while (_conversationTurns.Count > MaxConversationTurns)
+                            _conversationTurns.RemoveAt(0);
 
-                    _insertButton.Enabled = true;
+                        _insertButton.Enabled = true;
+                    }
+
                     _copyButton.Enabled = true;
                 }
 
@@ -222,14 +307,13 @@ namespace TextForge
         private List<ChatMessage> BuildRagAwareMessages(
             string userQuery,
             string templateInstruction,
-            string localCursorContext
+            string localCursorContext,
+            string groundedEvidenceBlock,
+            bool forceRag
         )
         {
             var messages = new List<ChatMessage>();
 
-            // Preserve real chat roles. Previously the whole conversation, including
-            // assistant answers, was wrapped into one UserChatMessage. Small local models
-            // tend to echo that block instead of treating the new request as a follow-up.
             if (_conversationTurns.Count > 0)
             {
                 int answerTokens = Math.Max(256, (int)(ThisAddIn.ContextLength * 0.07));
@@ -262,25 +346,26 @@ namespace TextForge
                 );
             }
 
-            // This rule is used even for "Свободный запрос". Previously that mode had no
-            // instruction forcing the model to consume the RAG context, so a model could
-            // answer entirely from its pretrained knowledge despite attached PDFs.
-            messages.Add(new UserChatMessage(AlwaysUseRagInstruction));
+            if (forceRag)
+            {
+                messages.Add(new UserChatMessage(AlwaysUseRagInstruction));
+                messages.Add(new UserChatMessage(groundedEvidenceBlock));
+            }
 
             if (!string.IsNullOrWhiteSpace(templateInstruction))
                 messages.Add(new UserChatMessage(templateInstruction));
 
-            // RAGControl.ProcessInformation() uses messages.Last() as the semantic query.
-            // Generic follow-ups like "используй RAG и дополни" carry almost no subject
-            // terms, so explicitly include the previous user topic but never the previous
-            // assistant answer. This retrieves crystallography chunks for a crystallography
-            // follow-up instead of embedding only the words "дополни" and "RAG".
             string retrievalQuery = BuildRagRetrievalQuery(userQuery);
+            string ragBehavior = forceRag
+                ? "Строгий RAG включен. Пиши только по проверенным фрагментам [S#]. " +
+                  "Не создавай библиографию и не используй сведения, которых нет в этих фрагментах. " +
+                  "Для каждой опоры на источник ставь [S#]."
+                : "Ответь на текущий запрос с учетом предыдущего диалога. RAG-контекст можно использовать как дополнительный источник, если он релевантен.";
+
             string finalPrompt =
                 "Текущий запрос пользователя: " + userQuery + "\n" +
                 "Тема для семантического поиска в RAG: " + retrievalQuery + "\n\n" +
-                "Ответь именно на текущий запрос. Если выше передан RAG-контекст, обязательно используй его. " +
-                "Для продолжения предыдущего ответа добавляй новые сведения из RAG и не повторяй старый текст дословно.";
+                ragBehavior;
 
             messages.Add(new UserChatMessage(finalPrompt));
             return messages;
@@ -297,10 +382,151 @@ namespace TextForge
             if (previousQuestion.Length == 0)
                 return current;
 
-            // Put the actual subject first. For a request such as "используй материал из
-            // RAG и дополни реферат", the useful embedding becomes roughly
-            // "расскажи о кристаллографии + используй ...", not just the generic command.
             return previousQuestion + "\n" + current;
+        }
+
+        private static bool HasUsableEvidence(List<RAGControl.RagEvidenceItem> evidence)
+        {
+            if (evidence == null || evidence.Count == 0)
+                return false;
+
+            foreach (RAGControl.RagEvidenceItem item in evidence)
+            {
+                if (item != null && !string.IsNullOrWhiteSpace(item.Text))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string BuildGroundedEvidenceBlock(List<RAGControl.RagEvidenceItem> evidence)
+        {
+            StringBuilder block = new StringBuilder();
+            block.AppendLine("ПРОВЕРЕННЫЕ RAG-ФРАГМЕНТЫ — ЕДИНСТВЕННАЯ РАЗРЕШЕННАЯ ВНЕШНЯЯ ДОКАЗАТЕЛЬНАЯ БАЗА:");
+            block.AppendLine("Цитируй только идентификаторами [S1], [S2] и т. д. Не придумывай библиографические данные.");
+            block.AppendLine();
+
+            int shown = 0;
+            foreach (RAGControl.RagEvidenceItem item in evidence)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.Text))
+                    continue;
+                if (shown >= 10)
+                    break;
+
+                shown++;
+                string excerpt = item.Text.Replace("\r", " ").Replace("\n", " ").Trim();
+                if (excerpt.Length > 900)
+                    excerpt = excerpt.Substring(0, 900).TrimEnd() + "…";
+
+                block.Append("[S").Append(shown).Append("] ");
+                block.Append(item.CitationLabel).AppendLine();
+                block.AppendLine(excerpt);
+                block.AppendLine();
+            }
+
+            return block.ToString();
+        }
+
+        private static string GroundForcedRagResponse(
+            string response,
+            List<RAGControl.RagEvidenceItem> evidence,
+            out bool accepted
+        )
+        {
+            accepted = false;
+            string grounded = (response ?? string.Empty).Trim();
+            if (grounded.Length == 0)
+                return grounded;
+
+            int maxSources = 0;
+            if (evidence != null)
+            {
+                foreach (RAGControl.RagEvidenceItem item in evidence)
+                {
+                    if (item != null && !string.IsNullOrWhiteSpace(item.Text))
+                        maxSources++;
+                    if (maxSources >= 10)
+                        break;
+                }
+            }
+
+            bool usedVerifiedMarker = false;
+            for (int i = 1; i <= maxSources; i++)
+            {
+                string marker = "[S" + i + "]";
+                if (grounded.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0)
+                    usedVerifiedMarker = true;
+            }
+
+            if (!usedVerifiedMarker)
+            {
+                return
+                    "⚠ Строгий RAG отклонил ответ модели: в тексте нет ни одной ссылки на проверенный фрагмент [S#]. " +
+                    "Ответ не разрешен для вставки, потому что модель могла использовать собственные знания вместо отмеченных PDF. " +
+                    "Уточните запрос или отключите строгий RAG.";
+            }
+
+            int evidenceIndex = 0;
+            if (evidence != null)
+            {
+                foreach (RAGControl.RagEvidenceItem item in evidence)
+                {
+                    if (item == null || string.IsNullOrWhiteSpace(item.Text))
+                        continue;
+                    if (evidenceIndex >= 10)
+                        break;
+
+                    evidenceIndex++;
+                    grounded = Regex.Replace(
+                        grounded,
+                        @"\[S" + evidenceIndex + @"\]",
+                        item.CitationLabel.Replace("$", "$$"),
+                        RegexOptions.IgnoreCase
+                    );
+                }
+            }
+
+            // Any S-marker left at this point was not part of the verified evidence set.
+            grounded = Regex.Replace(
+                grounded,
+                @"\[S\d+\]",
+                "[неподтвержденная RAG-ссылка удалена]",
+                RegexOptions.IgnoreCase
+            );
+
+            // Numeric pseudo-citations such as [1] or [2, с. 21] are not allowed in strict
+            // mode because the model can fabricate the corresponding bibliography.
+            grounded = Regex.Replace(
+                grounded,
+                @"\[\d+\s*(?:,\s*с\.\s*\d+)?\]",
+                "[неподтвержденная ссылка удалена]",
+                RegexOptions.IgnoreCase
+            );
+
+            int bibliographyIndex = grounded.IndexOf("Список литературы", StringComparison.OrdinalIgnoreCase);
+            if (bibliographyIndex >= 0)
+            {
+                grounded = grounded.Substring(0, bibliographyIndex).TrimEnd() +
+                    "\n\n[TextCraft: список литературы не добавлен, поскольку его библиографические записи не были подтверждены RAG.]";
+            }
+
+            accepted = true;
+            return grounded.Trim();
+        }
+
+        private void ReplaceCurrentResponse(int responseStart, string response)
+        {
+            if (_responseTextBox == null || _responseTextBox.IsDisposed)
+                return;
+
+            int safeStart = Math.Max(0, Math.Min(responseStart, _responseTextBox.TextLength));
+            int length = _responseTextBox.TextLength - safeStart;
+            _responseTextBox.Select(safeStart, length);
+            _responseTextBox.SelectedText = response ?? string.Empty;
+            _responseTextBox.SelectionStart = _responseTextBox.TextLength;
+            _responseTextBox.SelectionLength = 0;
+            _responseTextBox.ScrollToCaret();
         }
 
         private async void GenerateButton_SmoothStreaming(object sender, EventArgs e)
@@ -390,8 +616,6 @@ namespace TextForge
             if (query.Length == 0)
                 return;
 
-            // Use the same subject-aware query as the main RAG request, so evidence for a
-            // follow-up remains on the previous scientific topic instead of generic words.
             string evidenceQuery = BuildRagRetrievalQuery(query);
 
             int requestVersion = ++_evidenceRequestVersion;
@@ -482,7 +706,7 @@ namespace TextForge
             {
                 _evidenceTextBox.Text =
                     "Подходящие фрагменты в отмеченных PDF не найдены. " +
-                    "Проверьте, что нужные источники отмечены галочками в панели «Литература».";
+                    "В строгом RAG генерация будет остановлена, чтобы модель не выдумывала источники.";
                 return;
             }
 
@@ -490,18 +714,28 @@ namespace TextForge
             int shown = 0;
             foreach (RAGControl.RagEvidenceItem item in evidence)
             {
+                if (item == null || string.IsNullOrWhiteSpace(item.Text))
+                    continue;
                 if (shown >= 8)
                     break;
 
-                string excerpt = item.Text ?? string.Empty;
-                excerpt = excerpt.Replace("\r", " ").Replace("\n", " ").Trim();
+                string excerpt = item.Text.Replace("\r", " ").Replace("\n", " ").Trim();
                 if (excerpt.Length > 420)
                     excerpt = excerpt.Substring(0, 420).TrimEnd() + "…";
 
+                text.Append("[S").Append(shown + 1).Append("] ");
                 text.AppendLine(item.CitationLabel);
                 text.AppendLine(excerpt);
                 text.AppendLine();
                 shown++;
+            }
+
+            if (shown == 0)
+            {
+                _evidenceTextBox.Text =
+                    "Подходящие фрагменты в отмеченных PDF не найдены. " +
+                    "В строгом RAG генерация будет остановлена, чтобы модель не выдумывала источники.";
+                return;
             }
 
             _evidenceTextBox.Text = text.ToString().TrimEnd();
