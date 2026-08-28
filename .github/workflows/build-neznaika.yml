@@ -70,6 +70,10 @@ jobs:
             throw 'Primary НеZнайка installer is missing.'
           }
 
+      - name: Fix installer encoding for Windows PowerShell 5.1
+        shell: pwsh
+        run: ./ci/fix-installer-encoding.ps1
+
       - name: Finalize НеZнайка installer package
         shell: pwsh
         run: |
