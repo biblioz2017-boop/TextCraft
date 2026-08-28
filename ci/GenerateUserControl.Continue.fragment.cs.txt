@@ -1,0 +1,100 @@
+
+namespace TextForge
+{
+    public partial class GenerateUserControl
+    {
+        private System.Windows.Forms.Button _continueResponseButton;
+        private System.Windows.Forms.ToolTip _continueResponseToolTip;
+
+        private void EnsureContinueResponseButton()
+        {
+            if (_continueResponseButton != null || _responseActionsPanel == null)
+                return;
+
+            _continueResponseButton = new System.Windows.Forms.Button
+            {
+                Text = "Продолжить ответ",
+                AutoSize = true,
+                Height = 28,
+                Margin = new System.Windows.Forms.Padding(2),
+                Enabled = false
+            };
+            _continueResponseButton.Click += ContinueResponseButton_Click;
+
+            _continueResponseToolTip = new System.Windows.Forms.ToolTip();
+            _continueResponseToolTip.SetToolTip(
+                _continueResponseButton,
+                "Продолжить предыдущий ответ с места обрыва без повторения уже написанного. Полезно, если модель остановилась из-за лимита токенов."
+            );
+
+            _responseActionsPanel.Controls.Add(_continueResponseButton);
+            int insertIndex = _insertButton != null
+                ? System.Math.Min(_responseActionsPanel.Controls.Count - 1, _responseActionsPanel.Controls.GetChildIndex(_insertButton) + 1)
+                : 0;
+            _responseActionsPanel.Controls.SetChildIndex(_continueResponseButton, insertIndex);
+
+            GenerateButton.Click += GenerateButton_TrackContinueState;
+            _clearButton.Click += (s, args) => UpdateContinueResponseButtonState();
+            UpdateContinueResponseButtonState();
+        }
+
+        private async void GenerateButton_TrackContinueState(object sender, System.EventArgs e)
+        {
+            if (_continueResponseButton != null)
+                _continueResponseButton.Enabled = false;
+
+            await System.Threading.Tasks.Task.Yield();
+            for (int i = 0; i < 7200 && !GenerateButton.Enabled; i++)
+                await System.Threading.Tasks.Task.Delay(250);
+
+            UpdateContinueResponseButtonState();
+        }
+
+        private async void ContinueResponseButton_Click(object sender, System.EventArgs e)
+        {
+            if (_conversationTurns.Count == 0 || !GenerateButton.Enabled)
+                return;
+
+            string pendingUserText = PromptTextBox.Text ?? string.Empty;
+            const string continuationPrompt =
+                "Продолжи предыдущий ответ точно с места обрыва. Не повторяй уже написанный текст и не начинай заново. " +
+                "Сначала заверши незаконченное предложение или абзац, затем продолжай изложение в том же научном стиле. " +
+                "Сохрани текущий шаблон, режим RAG и правила цитирования. Используй только ту доказательную базу, " +
+                "которая разрешена текущими настройками TextCraft. Если предыдущий ответ уже завершен логически, " +
+                "добавь только действительно недостающие сведения.";
+
+            try
+            {
+                _continueResponseButton.Enabled = false;
+                PromptTextBox.Text = continuationPrompt;
+                GenerateButton.PerformClick();
+
+                await System.Threading.Tasks.Task.Yield();
+                for (int i = 0; i < 7200 && !GenerateButton.Enabled; i++)
+                    await System.Threading.Tasks.Task.Delay(250);
+            }
+            finally
+            {
+                if (!string.IsNullOrWhiteSpace(pendingUserText) && GenerateButton.Enabled)
+                {
+                    PromptTextBox.Text = pendingUserText;
+                    PromptTextBox.SelectionStart = PromptTextBox.TextLength;
+                }
+
+                UpdateContinueResponseButtonState();
+            }
+        }
+
+        private void UpdateContinueResponseButtonState()
+        {
+            if (_continueResponseButton == null || _continueResponseButton.IsDisposed)
+                return;
+
+            _continueResponseButton.Enabled =
+                GenerateButton != null &&
+                GenerateButton.Enabled &&
+                _conversationTurns.Count > 0 &&
+                !string.IsNullOrWhiteSpace(_lastResponseMarkdown);
+        }
+    }
+}
