@@ -70,9 +70,9 @@ jobs:
             throw 'Primary НеZнайка installer is missing.'
           }
 
-      - name: Fix installer encoding for Windows PowerShell 5.1
+      - name: Finalize and validate installer
         shell: pwsh
-        run: ./ci/fix-installer-encoding.ps1
+        run: ./ci/finalize-neznaika-installer.ps1
 
       - name: Finalize НеZнайка installer package
         shell: pwsh
@@ -80,7 +80,6 @@ jobs:
           $cert = Get-Item "Cert:\CurrentUser\My\$env:NEZNAIKA_CERT_THUMBPRINT"
           Export-Certificate -Cert $cert -FilePath 'artifact\NeZnaika-CI.cer' -Force | Out-Null
 
-          # Remove legacy CI launchers so the archive has one obvious installation path.
           Remove-Item 'artifact\Install-TextCraft.ps1' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
@@ -97,12 +96,8 @@ jobs:
           Запустите:
               00_INSTALL-NeZnaika.cmd
 
-          Это основной установщик. Он:
-          - попросит закрыть Word;
-          - разблокирует файлы;
-          - установит сертификат доверия;
-          - использует MSI, если он собран;
-          - иначе установит надстройку через VSTO.
+          Это основной установщик. Его исполняемые файлы специально оставлены ASCII-only,
+          чтобы Windows PowerShell 5.1 не зависел от системной кодировки.
 
           Внутренние имена TextCraft.dll/TextCraft.vsto сохранены только для совместимости VSTO.
           Пользовательское имя продукта: НеZнайка.
