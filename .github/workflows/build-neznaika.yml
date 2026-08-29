@@ -62,20 +62,20 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеZнайка 1.0.30
+      - name: Build НеZнайка 1.0.31
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеZнайка 1.0.30
+      - name: Verify НеZнайка 1.0.31
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
           foreach ($marker in @(
-            '<ApplicationVersion>1.0.30.0</ApplicationVersion>',
+            '<ApplicationVersion>1.0.31.0</ApplicationVersion>',
             'GenerateUserControl.BeautifyRag.cs',
             'apply-beautify-rag-ui.ps1',
             'apply-beautify-citation-repair.ps1',
-            'set-neznaika-version-1.0.30.ps1'
+            'set-neznaika-version-1.0.31.ps1'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build marker: $marker" }
           }
@@ -92,6 +92,7 @@ jobs:
           foreach ($marker in @(
             'NormalizeProtectedCitationKey',
             'RepairMissingProtectedCitationsAsync',
+            'stable range markers',
             'lostDuringRepair'
           )) {
             if (-not $citationPatch.Contains($marker)) { throw "Missing citation repair patch marker: $marker" }
@@ -132,24 +133,24 @@ jobs:
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.30.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
-          if ($fileVersion -ne '1.0.30.0') { throw "Unexpected DLL file version: $fileVersion" }
+          if ($assemblyVersion -ne '1.0.31.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
+          if ($fileVersion -ne '1.0.31.0') { throw "Unexpected DLL file version: $fileVersion" }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $appIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.30.0') {
-            throw 'Application manifest is not version 1.0.30.0.'
+          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.31.0') {
+            throw 'Application manifest is not version 1.0.31.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.30.0') {
-            throw 'Deployment manifest is not version 1.0.30.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.31.0') {
+            throw 'Deployment manifest is not version 1.0.31.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.30"')) {
-            throw 'MSI project version is not 1.0.30.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.31"')) {
+            throw 'MSI project version is not 1.0.31.'
           }
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
             throw 'Primary NeZnaika installer is missing.'
@@ -168,13 +169,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.30-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.30-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.31-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.31-Setup.msi' -Force
           }
 
-      - name: Upload НеZнайка 1.0.30
+      - name: Upload НеZнайка 1.0.31
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.30
+          name: NeZnaika-1.0.31
           path: artifact
           if-no-files-found: error
