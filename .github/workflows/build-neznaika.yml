@@ -124,12 +124,15 @@ jobs:
           foreach ($marker in @(
             'StartAuditReviewProgress();',
             'ProgressBarStyle.Marquee',
-            '_auditReviewStreamedCharacters += text.Length;',
-            'Forge.SetModelActivity(true, "Структурирует аудит…");'
+            'issues = ParseAuditReportFallback(',
+            'const int maxFallbackCharacters = 24000;'
           )) {
             if (-not $auditPanel.Contains($marker)) {
-              throw "Missing audit progress marker: $marker"
+              throw "Missing crash-safe audit marker: $marker"
             }
+          }
+          if ($auditPanel.Contains('List<AuditReviewIssue> issues = await GenerateAuditReviewIssuesWithFallbackAsync(')) {
+            throw 'Automatic second LLM audit request is still active in the crash-safe build.'
           }
           if (-not $science.Contains('Аудит — этап 1 из 2: LLM формирует диагностический отчет…')) {
             throw 'Audit stage-one progress label is missing.'
@@ -147,7 +150,7 @@ jobs:
             throw 'Main scientific audit does not enforce the local endpoint guard.'
           }
           if (-not $auditPanel.Contains('EnsureLocalAuditEndpoint();')) {
-            throw 'Audit structuring does not enforce the local endpoint guard.'
+            throw 'Audit structuring helper does not enforce the local endpoint guard.'
           }
 
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
