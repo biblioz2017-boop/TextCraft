@@ -15,6 +15,7 @@ Write-Host 'Applying mandatory LLM audit stage-2 mode...'
 
 $path = 'GenerateUserControl.AuditPanel.cs'
 $panel = Read-Utf8Text $path
+$nl = if ($panel.Contains("`r`n")) { "`r`n" } else { "`n" }
 
 # The stage-2 hotfix runs before this script and may route the panel through a
 # fallback wrapper. The normal panel path must instead call the LLM method
@@ -100,6 +101,124 @@ if (maxIssues <= 0 || string.IsNullOrWhiteSpace(auditReport) || string.IsNullOrW
     }
 }
 
+# The second LLM request may complete successfully and then fail while the audit
+# panel is being unlocked or rendered. Do not allow a secondary UI null reference
+# in cleanup to escape into the outer Generate handler and hide the real result.
+$buttonsStart = $panel.IndexOf('        private void UpdateAuditActionButtons()')
+$buttonsEnd = if ($buttonsStart -ge 0) {
+    $panel.IndexOf('        private void SetAuditReviewControlsEnabled(bool enabled)', $buttonsStart)
+} else { -1 }
+if ($buttonsStart -lt 0 -or $buttonsEnd -le $buttonsStart) {
+    throw 'Audit action-button method was not found.'
+}
+
+$buttonsMethod = @'
+        private void UpdateAuditActionButtons()
+        {
+            bool hasSafeChecked = false;
+            if (_auditIssueList != null && !_auditIssueList.IsDisposed)
+            {
+                foreach (object checkedItem in _auditIssueList.CheckedItems)
+                {
+                    AuditReviewIssue issue = checkedItem as AuditReviewIssue;
+                    if (issue != null && issue.AutoApplicable && !issue.Applied)
+                    {
+                        hasSafeChecked = true;
+                        break;
+                    }
+                }
+            }
+
+            if (_auditApplySelectedButton != null && !_auditApplySelectedButton.IsDisposed)
+                _auditApplySelectedButton.Enabled = !_auditReviewBusy && hasSafeChecked;
+
+            if (_auditSelectSafeButton != null && !_auditSelectSafeButton.IsDisposed)
+            {
+                _auditSelectSafeButton.Enabled = !_auditReviewBusy &&
+                    _auditReviewIssues.Any(i => i != null && i.AutoApplicable && !i.Applied);
+            }
+        }
+
+'@
+$panel = $panel.Substring(0, $buttonsStart) + $buttonsMethod.Replace("`n", $nl) + $panel.Substring($buttonsEnd)
+
+$controlsStart = $panel.IndexOf('        private void SetAuditReviewControlsEnabled(bool enabled)')
+$controlsEnd = if ($controlsStart -ge 0) {
+    $panel.IndexOf('        private void ShowAuditReviewPanel()', $controlsStart)
+} else { -1 }
+if ($controlsStart -lt 0 -or $controlsEnd -le $controlsStart) {
+    throw 'Audit control-enable method was not found.'
+}
+
+$controlsMethod = @'
+        private void SetAuditReviewControlsEnabled(bool enabled)
+        {
+            if (_auditIssueList != null && !_auditIssueList.IsDisposed)
+                _auditIssueList.Enabled = enabled;
+            if (_auditGoToButton != null && !_auditGoToButton.IsDisposed)
+                _auditGoToButton.Enabled = enabled && _auditIssueList != null && !_auditIssueList.IsDisposed && _auditIssueList.SelectedItem != null;
+            if (_auditClosePanelButton != null && !_auditClosePanelButton.IsDisposed)
+                _auditClosePanelButton.Enabled = enabled;
+            UpdateAuditActionButtons();
+        }
+
+'@
+$panel = $panel.Substring(0, $controlsStart) + $controlsMethod.Replace("`n", $nl) + $panel.Substring($controlsEnd)
+
+# A malformed or partial item must not crash the rendering pass.
+$renderStart = $panel.IndexOf('        private void RenderAuditReviewIssues(bool selectFirst)')
+$renderEnd = if ($renderStart -ge 0) {
+    $panel.IndexOf('        private void AuditIssueList_ItemCheck(', $renderStart)
+} else { -1 }
+if ($renderStart -lt 0 -or $renderEnd -le $renderStart) {
+    throw 'Audit issue renderer was not found.'
+}
+$render = $panel.Substring($renderStart, $renderEnd - $renderStart)
+$issueMarker = '                    AuditReviewIssue issue = _auditReviewIssues[i];'
+if (-not $render.Contains('                    if (issue == null)')) {
+    if (-not $render.Contains($issueMarker)) {
+        throw 'Audit renderer issue marker was not found.'
+    }
+    $render = $render.Replace(
+        $issueMarker,
+        $issueMarker + $nl + '                    if (issue == null)' + $nl + '                        continue;'
+    )
+    $panel = $panel.Substring(0, $renderStart) + $render + $panel.Substring($renderEnd)
+}
+
+# Count helpers must tolerate a partial list as well.
+$panel = $panel.Replace(
+    '_auditReviewIssues.Count(i => i.AutoApplicable && !i.Applied)',
+    '_auditReviewIssues.Count(i => i != null && i.AutoApplicable && !i.Applied)'
+)
+
+# Cleanup belongs outside the functional result of stage 2. Each cleanup action
+# is best-effort so a UI object that disappeared during Word shutdown or pane
+# recreation cannot convert a handled stage-2 condition into a modal NRE.
+$oldFinally = @'
+            finally
+            {
+                Forge.SetModelActivity(false, null);
+                _auditReviewBusy = false;
+                SetAuditReviewControlsEnabled(true);
+                SetAuditFixButtons(HasPendingAuditReview());
+            }
+'@
+$newFinally = @'
+            finally
+            {
+                try { Forge.SetModelActivity(false, null); } catch { }
+                _auditReviewBusy = false;
+                try { SetAuditReviewControlsEnabled(true); } catch { }
+                try { SetAuditFixButtons(HasPendingAuditReview()); } catch { }
+            }
+'@
+if ($panel.Contains($oldFinally.Trim())) {
+    $panel = $panel.Replace($oldFinally.Trim(), $newFinally.Trim())
+} elseif (-not $panel.Contains('try { SetAuditReviewControlsEnabled(true); } catch { }')) {
+    throw 'Audit stage-2 cleanup block was not found.'
+}
+
 # Final invariants. These checks make repeated MSBuild/devenv passes safe.
 if (-not [regex]::IsMatch($panel, $directPattern)) {
     throw 'Mandatory direct LLM stage-2 call was not preserved.'
@@ -113,6 +232,12 @@ if (-not $panel.Contains('issues = ParseAuditReportFallback(')) {
 if (-not $panel.Contains('const int maxFallbackCharacters = 24000;')) {
     throw 'Fallback parser safety marker is missing.'
 }
+if (-not $panel.Contains('_auditSelectSafeButton != null && !_auditSelectSafeButton.IsDisposed')) {
+    throw 'Audit action-button null guard is missing.'
+}
+if (-not $panel.Contains('try { SetAuditReviewControlsEnabled(true); } catch { }')) {
+    throw 'Audit cleanup null guard is missing.'
+}
 
 Write-Utf8Text $path $panel
-Write-Host 'Mandatory LLM audit stage 2 applied successfully.'
+Write-Host 'Mandatory LLM audit stage 2 and null-safe UI finalization applied successfully.'
