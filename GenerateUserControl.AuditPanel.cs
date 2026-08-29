@@ -17,6 +17,9 @@ namespace TextForge
         private Panel _auditReviewPanel;
         private TableLayoutPanel _auditReviewLayout;
         private Label _auditReviewHeader;
+        private Label _auditReviewProgressLabel;
+        private ProgressBar _auditReviewProgressBar;
+        private Timer _auditReviewProgressTimer;
         private CheckedListBox _auditIssueList;
         private RichTextBox _auditReasonTextBox;
         private RichTextBox _auditBeforeTextBox;
@@ -28,6 +31,9 @@ namespace TextForge
         private Button _auditClosePanelButton;
         private readonly List<AuditReviewIssue> _auditReviewIssues = new List<AuditReviewIssue>();
         private bool _auditReviewBusy;
+        private DateTime _auditReviewProgressStartedUtc;
+        private int _auditReviewStreamedCharacters;
+        private string _auditReviewProgressPhase = string.Empty;
 
         private sealed class AuditReviewIssue
         {
@@ -71,6 +77,40 @@ namespace TextForge
                 Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold),
                 ForeColor = SystemColors.ControlText,
                 BackColor = SystemColors.Control
+            };
+
+            _auditReviewProgressLabel = new Label
+            {
+                Text = "Этап 1 из 2 — ожидаю диагностический отчет…",
+                Dock = DockStyle.Fill,
+                Height = 36,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0),
+                ForeColor = SystemColors.ControlText,
+                BackColor = SystemColors.Control
+            };
+
+            _auditReviewProgressBar = new ProgressBar
+            {
+                Dock = DockStyle.Fill,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                Style = ProgressBarStyle.Continuous,
+                MarqueeAnimationSpeed = 0,
+                Margin = new Padding(0, 1, 0, 2)
+            };
+
+            _auditReviewProgressTimer = new Timer { Interval = 500 };
+            _auditReviewProgressTimer.Tick += AuditReviewProgressTimer_Tick;
+            Disposed += (s, e) =>
+            {
+                if (_auditReviewProgressTimer == null)
+                    return;
+
+                _auditReviewProgressTimer.Stop();
+                _auditReviewProgressTimer.Dispose();
+                _auditReviewProgressTimer = null;
             };
 
             _auditIssueList = new CheckedListBox
@@ -140,34 +180,38 @@ namespace TextForge
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 9,
+                RowCount = 11,
                 Padding = new Padding(0)
             };
             _auditReviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 25F));
-            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94F));
+            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));
+            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 14F));
+            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 72F));
+            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 19F));
+            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
             _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 19F));
             _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));
             _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 19F));
-            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
-            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 19F));
-            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
+            _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));
             _auditReviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
             _auditReviewLayout.Controls.Add(_auditReviewHeader, 0, 0);
-            _auditReviewLayout.Controls.Add(_auditIssueList, 0, 1);
-            _auditReviewLayout.Controls.Add(CreateAuditSectionLabel("Почему:"), 0, 2);
-            _auditReviewLayout.Controls.Add(_auditReasonTextBox, 0, 3);
-            _auditReviewLayout.Controls.Add(CreateAuditSectionLabel("Было:"), 0, 4);
-            _auditReviewLayout.Controls.Add(_auditBeforeTextBox, 0, 5);
-            _auditReviewLayout.Controls.Add(CreateAuditSectionLabel("Стало:"), 0, 6);
-            _auditReviewLayout.Controls.Add(_auditAfterTextBox, 0, 7);
-            _auditReviewLayout.Controls.Add(_auditReviewActions, 0, 8);
+            _auditReviewLayout.Controls.Add(_auditReviewProgressLabel, 0, 1);
+            _auditReviewLayout.Controls.Add(_auditReviewProgressBar, 0, 2);
+            _auditReviewLayout.Controls.Add(_auditIssueList, 0, 3);
+            _auditReviewLayout.Controls.Add(CreateAuditSectionLabel("Почему:"), 0, 4);
+            _auditReviewLayout.Controls.Add(_auditReasonTextBox, 0, 5);
+            _auditReviewLayout.Controls.Add(CreateAuditSectionLabel("Было:"), 0, 6);
+            _auditReviewLayout.Controls.Add(_auditBeforeTextBox, 0, 7);
+            _auditReviewLayout.Controls.Add(CreateAuditSectionLabel("Стало:"), 0, 8);
+            _auditReviewLayout.Controls.Add(_auditAfterTextBox, 0, 9);
+            _auditReviewLayout.Controls.Add(_auditReviewActions, 0, 10);
 
             _auditReviewPanel = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 390,
+                Height = 420,
                 Padding = new Padding(8, 6, 8, 6),
                 Visible = false,
                 BorderStyle = BorderStyle.FixedSingle
@@ -218,11 +262,102 @@ namespace TextForge
             ClearAuditPreview();
             if (_auditReviewHeader != null)
                 _auditReviewHeader.Text = "Замечания аудита — ожидаю результат…";
+            ResetAuditReviewProgress("Этап 1 из 2 — LLM формирует диагностический отчет…");
 
             if (_auditReviewPanel != null)
                 _auditReviewPanel.Visible = false;
             if (_evidencePanel != null)
                 _evidencePanel.Visible = true;
+        }
+
+        private void StartAuditReviewProgress()
+        {
+            _auditReviewProgressStartedUtc = DateTime.UtcNow;
+            _auditReviewStreamedCharacters = 0;
+            _auditReviewProgressPhase = "LLM активна: ожидаю первый фрагмент";
+
+            if (_auditReviewProgressBar != null)
+            {
+                _auditReviewProgressBar.Style = ProgressBarStyle.Marquee;
+                _auditReviewProgressBar.MarqueeAnimationSpeed = 28;
+                _auditReviewProgressBar.Value = 0;
+            }
+
+            if (_auditReviewProgressTimer != null)
+                _auditReviewProgressTimer.Start();
+
+            UpdateAuditReviewProgressText();
+        }
+
+        private void SetAuditReviewProgressPhase(string phase)
+        {
+            _auditReviewProgressPhase = phase ?? string.Empty;
+            UpdateAuditReviewProgressText();
+        }
+
+        private void AuditReviewProgressTimer_Tick(object sender, EventArgs e)
+        {
+            UpdateAuditReviewProgressText();
+        }
+
+        private void UpdateAuditReviewProgressText()
+        {
+            if (_auditReviewProgressLabel == null)
+                return;
+
+            TimeSpan elapsed = DateTime.UtcNow - _auditReviewProgressStartedUtc;
+            int minutes = Math.Max(0, (int)elapsed.TotalMinutes);
+            string elapsedText = minutes.ToString("00") + ":" + elapsed.Seconds.ToString("00");
+            _auditReviewProgressLabel.Text =
+                "Этап 2 из 2 — " + _auditReviewProgressPhase +
+                Environment.NewLine +
+                "Время: " + elapsedText +
+                " · получено: " + _auditReviewStreamedCharacters.ToString("N0") + " симв.";
+        }
+
+        private void CompleteAuditReviewProgress(int issueCount)
+        {
+            TimeSpan elapsed = DateTime.UtcNow - _auditReviewProgressStartedUtc;
+            int minutes = Math.Max(0, (int)elapsed.TotalMinutes);
+            string elapsedText = minutes.ToString("00") + ":" + elapsed.Seconds.ToString("00");
+
+            if (_auditReviewProgressTimer != null)
+                _auditReviewProgressTimer.Stop();
+            if (_auditReviewProgressBar != null)
+            {
+                _auditReviewProgressBar.MarqueeAnimationSpeed = 0;
+                _auditReviewProgressBar.Style = ProgressBarStyle.Continuous;
+                _auditReviewProgressBar.Value = 100;
+            }
+            if (_auditReviewProgressLabel != null)
+            {
+                _auditReviewProgressLabel.Text =
+                    "Готово: 2 этапа из 2 · замечаний: " + issueCount +
+                    Environment.NewLine +
+                    "Время структурирования: " + elapsedText;
+            }
+        }
+
+        private void StopAuditReviewProgress(string text)
+        {
+            if (_auditReviewProgressTimer != null)
+                _auditReviewProgressTimer.Stop();
+            if (_auditReviewProgressBar != null)
+            {
+                _auditReviewProgressBar.MarqueeAnimationSpeed = 0;
+                _auditReviewProgressBar.Style = ProgressBarStyle.Continuous;
+                _auditReviewProgressBar.Value = 0;
+            }
+            if (_auditReviewProgressLabel != null)
+                _auditReviewProgressLabel.Text = text ?? string.Empty;
+        }
+
+        private void ResetAuditReviewProgress(string text)
+        {
+            _auditReviewProgressStartedUtc = DateTime.UtcNow;
+            _auditReviewStreamedCharacters = 0;
+            _auditReviewProgressPhase = string.Empty;
+            StopAuditReviewProgress(text);
         }
 
         private bool HasPendingAuditReview()
@@ -305,12 +440,14 @@ namespace TextForge
             {
                 _auditReviewBusy = true;
                 SetAuditFixButtons(false);
+                Forge.SetModelActivity(true, "Структурирует аудит…");
+                StartAuditReviewProgress();
                 ShowAuditReviewPanel();
                 ClearAuditPreview();
-                _auditReviewHeader.Text = "Замечания аудита — разбираю отчет…";
-                _auditReasonTextBox.Text = "Подождите: НеZнайка преобразует отчет в отдельные замечания…";
+                _auditReviewHeader.Text = "Замечания аудита — этап 2 из 2";
+                _auditReasonTextBox.Text = "Подождите: LLM преобразует отчет в отдельные замечания…";
                 if (_responseLabel != null)
-                    _responseLabel.Text = "Аудит — структурирую замечания…";
+                    _responseLabel.Text = "Аудит — этап 2 из 2: LLM структурирует замечания…";
                 SetAuditReviewControlsEnabled(false);
                 _auditReviewPanel.Refresh();
                 await Task.Yield();
@@ -335,18 +472,23 @@ namespace TextForge
                     _auditReasonTextBox.Text =
                         "Структурированные замечания не получены. Диагностический отчет остается в окне ответа.";
                 }
+
+                CompleteAuditReviewProgress(_auditReviewIssues.Count);
             }
             catch (OperationCanceledException)
             {
                 _auditReviewHeader.Text = "Замечания аудита — разбор остановлен";
+                StopAuditReviewProgress("Этап 2 из 2 остановлен пользователем");
             }
             catch (Exception ex)
             {
                 _auditReviewHeader.Text = "Замечания аудита — ошибка разбора";
                 _auditReasonTextBox.Text = ex.Message;
+                StopAuditReviewProgress("Ошибка на этапе 2 из 2: " + ex.Message);
             }
             finally
             {
+                Forge.SetModelActivity(false, null);
                 _auditReviewBusy = false;
                 SetAuditReviewControlsEnabled(true);
                 SetAuditFixButtons(HasPendingAuditReview());
@@ -359,6 +501,8 @@ namespace TextForge
             int maxIssues
         )
         {
+            EnsureLocalAuditEndpoint();
+
             int textTokens = Math.Max(1200, (int)(ThisAddIn.ContextLength * 0.38));
             int auditTokens = Math.Max(800, (int)(ThisAddIn.ContextLength * 0.24));
             string boundedText = CommonUtils.SubstringTokens(currentText, textTokens);
@@ -416,11 +560,22 @@ namespace TextForge
             {
                 foreach (var part in update.ContentUpdate)
                 {
-                    if (part.Kind == ChatMessageContentPartKind.Text)
-                        response.Append(part.Text);
+                    if (part.Kind != ChatMessageContentPartKind.Text)
+                        continue;
+
+                    string text = part.Text ?? string.Empty;
+                    if (text.Length == 0)
+                        continue;
+
+                    if (response.Length == 0)
+                        SetAuditReviewProgressPhase("LLM активна: получаю структурированные замечания");
+
+                    response.Append(text);
+                    _auditReviewStreamedCharacters += text.Length;
                 }
             }
 
+            SetAuditReviewProgressPhase("проверяю привязку замечаний к тексту");
             return ParseAuditReviewIssues(response.ToString(), currentText, maxIssues);
         }
 
@@ -830,6 +985,7 @@ namespace TextForge
             ClearAuditPreview();
             if (_auditReviewHeader != null)
                 _auditReviewHeader.Text = "Замечания аудита";
+            ResetAuditReviewProgress("Готово к новому аудиту");
             if (_auditReviewPanel != null)
                 _auditReviewPanel.Visible = false;
             if (showEvidence && _evidencePanel != null)

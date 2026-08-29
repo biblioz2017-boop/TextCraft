@@ -45,6 +45,13 @@ namespace TextForge
             this.OptionsGroup.Items.Add(_unloadModelButton);
         }
 
+        public static void SetModelActivity(bool active, string operation)
+        {
+            CancelButtonVisibility(active);
+            if (active && !string.IsNullOrWhiteSpace(operation))
+                SetStatus("◌ " + operation.Trim());
+        }
+
         private async void UnloadModelButton_Click(object sender, RibbonControlEventArgs e)
         {
             if (_unloadModelButton == null || !_unloadModelButton.Enabled)

@@ -16,7 +16,7 @@ $utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $cmd = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.17 Installer
+title NeZnaika 1.0.18 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.

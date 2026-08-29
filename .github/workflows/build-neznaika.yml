@@ -65,7 +65,7 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеZнайка 1.0.17
+      - name: Build НеZнайка 1.0.18
         shell: pwsh
         run: ./ci/build-patched.ps1
 
@@ -90,7 +90,7 @@ jobs:
 
           $targets = Get-Content 'Directory.Build.targets' -Raw
           foreach ($marker in @(
-            '<ApplicationVersion>1.0.17.0</ApplicationVersion>',
+            '<ApplicationVersion>1.0.18.0</ApplicationVersion>',
             'Assets\NeZnaikaOwl.jpg',
             '<LogicalName>TextForge.NeZnaikaOwl.jpg</LogicalName>',
             '<Type>Non-Resx</Type>'
@@ -101,6 +101,7 @@ jobs:
           $science = Get-Content 'GenerateUserControl.Science.cs' -Raw
           $auditFix = Get-Content 'GenerateUserControl.AuditFix.cs' -Raw
           $auditPanel = Get-Content 'GenerateUserControl.AuditPanel.cs' -Raw
+          $modelControl = Get-Content 'Forge.ModelControl.cs' -Raw
           if (-not $science.Contains('PrepareAuditTargetForRequest(templateName, anchorRange, userQuery);')) {
             throw 'Scientific audit requests are not bound to the current Word selection.'
           }
@@ -120,14 +121,42 @@ jobs:
           if (-not $auditPanel.Contains('GetPendingSafeAuditReviewEdits')) {
             throw 'Prepared safe audit issues are not reused.'
           }
+          foreach ($marker in @(
+            'StartAuditReviewProgress();',
+            'ProgressBarStyle.Marquee',
+            '_auditReviewStreamedCharacters += text.Length;',
+            'Forge.SetModelActivity(true, "Структурирует аудит…");'
+          )) {
+            if (-not $auditPanel.Contains($marker)) {
+              throw "Missing audit progress marker: $marker"
+            }
+          }
+          if (-not $science.Contains('Аудит — этап 1 из 2: LLM формирует диагностический отчет…')) {
+            throw 'Audit stage-one progress label is missing.'
+          }
+          if (-not $modelControl.Contains('public static void SetModelActivity(bool active, string operation)')) {
+            throw 'Shared model activity indicator is missing.'
+          }
+          if (-not $auditFix.Contains('bool modelActivityStarted = false;')) {
+            throw 'Fallback audit-fix model activity indicator is missing.'
+          }
+          if (-not $auditFix.Contains('private static void EnsureLocalAuditEndpoint()')) {
+            throw 'Local-only audit endpoint guard is missing.'
+          }
+          if (-not $science.Contains('EnsureLocalAuditEndpoint();')) {
+            throw 'Main scientific audit does not enforce the local endpoint guard.'
+          }
+          if (-not $auditPanel.Contains('EnsureLocalAuditEndpoint();')) {
+            throw 'Audit structuring does not enforce the local endpoint guard.'
+          }
 
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.17.0') {
+          if ($assemblyVersion -ne '1.0.18.0') {
             throw "Unexpected TextCraft.dll assembly version: $assemblyVersion"
           }
-          if ($fileVersion -ne '1.0.17.0') {
+          if ($fileVersion -ne '1.0.18.0') {
             throw "Unexpected TextCraft.dll file version: $fileVersion"
           }
 
@@ -138,7 +167,7 @@ jobs:
           if ($null -eq $applicationIdentity) {
             throw 'Application manifest identity TextCraft.dll is missing.'
           }
-          if ($applicationIdentity.version -ne '1.0.17.0') {
+          if ($applicationIdentity.version -ne '1.0.18.0') {
             throw "Unexpected application manifest version: $($applicationIdentity.version)"
           }
 
@@ -148,7 +177,7 @@ jobs:
           if ($null -eq $payloadIdentity) {
             throw 'Application manifest identity TextCraft is missing.'
           }
-          if ($payloadIdentity.version -ne '1.0.17.0') {
+          if ($payloadIdentity.version -ne '1.0.18.0') {
             throw "Unexpected payload manifest version: $($payloadIdentity.version)"
           }
 
@@ -159,13 +188,13 @@ jobs:
           if ($null -eq $deploymentIdentity) {
             throw 'Deployment manifest identity TextCraft.vsto is missing.'
           }
-          if ($deploymentIdentity.version -ne '1.0.17.0') {
+          if ($deploymentIdentity.version -ne '1.0.18.0') {
             throw "Unexpected deployment manifest version: $($deploymentIdentity.version)"
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.17"')) {
-            throw 'MSI project version was not upgraded to 1.0.17.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.18"')) {
+            throw 'MSI project version was not upgraded to 1.0.18.'
           }
 
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
@@ -185,13 +214,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.17-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.17-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.18-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.18-Setup.msi' -Force
           }
 
-      - name: Upload НеZнайка 1.0.17
+      - name: Upload НеZнайка 1.0.18
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.17
+          name: NeZnaika-1.0.18
           path: artifact
           if-no-files-found: error

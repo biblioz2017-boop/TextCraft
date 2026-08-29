@@ -219,6 +219,33 @@ namespace TextForge
             ResetAuditFixState(true);
         }
 
+        private static void EnsureLocalAuditEndpoint()
+        {
+            Uri endpoint;
+            if (!Uri.TryCreate(ThisAddIn.OpenAIEndpoint, UriKind.Absolute, out endpoint))
+            {
+                throw new InvalidOperationException(
+                    "Научный аудит остановлен: адрес LLM endpoint задан некорректно."
+                );
+            }
+
+            string host = (endpoint.Host ?? string.Empty).Trim().Trim('[', ']');
+            bool isLoopback =
+                host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("::1", StringComparison.OrdinalIgnoreCase);
+
+            if (isLoopback)
+                return;
+
+            throw new InvalidOperationException(
+                "Научный аудит разрешен только через локальный LLM endpoint " +
+                "(localhost, 127.0.0.1 или ::1). Текущий адрес: " +
+                ThisAddIn.OpenAIEndpoint +
+                ". Измените TEXTCRAFT_OPENAI_ENDPOINT и перезапустите Word."
+            );
+        }
+
         private static CancellationToken GetAuditOperationToken()
         {
             CancellationTokenSource source = ThisAddIn.CancellationTokenSource;
@@ -277,6 +304,7 @@ namespace TextForge
             }
 
             string stage = "подготовка";
+            bool modelActivityStarted = false;
             try
             {
                 _auditFixBusy = true;
@@ -296,6 +324,11 @@ namespace TextForge
                 else
                 {
                     stage = "запрос безопасных правок у модели";
+                    Forge.SetModelActivity(
+                        true,
+                        singleEdit ? "Готовит следующую правку…" : "Готовит правки аудита…"
+                    );
+                    modelActivityStarted = true;
                     if (_responseLabel != null)
                         _responseLabel.Text = singleEdit
                             ? "Аудит — готовлю следующую безопасную правку…"
@@ -348,6 +381,8 @@ namespace TextForge
             }
             finally
             {
+                if (modelActivityStarted)
+                    Forge.SetModelActivity(false, null);
                 _auditFixBusy = false;
                 SetAuditControlsBusy(false);
                 if (_responseLabel != null)
@@ -361,6 +396,8 @@ namespace TextForge
             int maxEdits
         )
         {
+            EnsureLocalAuditEndpoint();
+
             int textTokens = Math.Max(1200, (int)(ThisAddIn.ContextLength * 0.38));
             int auditTokens = Math.Max(800, (int)(ThisAddIn.ContextLength * 0.24));
 

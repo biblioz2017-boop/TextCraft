@@ -190,6 +190,8 @@ namespace TextForge
                 string localCursorContext = GetLocalCursorContext(anchorRange);
                 string templateInstruction = GetSelectedTemplateInstruction();
                 string templateName = GetSelectedTemplateName();
+                if (string.Equals(templateName, "Научный аудит", StringComparison.Ordinal))
+                    EnsureLocalAuditEndpoint();
                 PrepareAuditTargetForRequest(templateName, anchorRange, userQuery);
                 bool forceRag = _forceRagCheckBox != null && _forceRagCheckBox.Checked;
                 string retrievalQuery = BuildRagRetrievalQuery(userQuery);
@@ -255,7 +257,10 @@ namespace TextForge
                     GetTemperature()
                 );
 
-                _responseLabel.Text = "Диалог / ответ — ожидаю первый токен…";
+                _responseLabel.Text =
+                    string.Equals(templateName, "Научный аудит", StringComparison.Ordinal)
+                        ? "Аудит — этап 1 из 2: LLM формирует диагностический отчет…"
+                        : "Диалог / ответ — ожидаю первый токен…";
                 string response = await StreamAnswerToPane(streamingAnswer);
                 bool responseAccepted = true;
 
