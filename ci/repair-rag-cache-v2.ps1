@@ -8,70 +8,38 @@ function Read-Utf8Text([string]$Path) {
 function Write-Utf8Text([string]$Path, [string]$Text) {
     [System.IO.File]::WriteAllText((Resolve-Path $Path).Path, $Text, $utf8NoBom)
 }
-function Get-NewLine([string]$Text) {
-    if ($Text.Contains("`r`n")) { return "`r`n" }
-    return "`n"
-}
 
-Write-Host 'Applying RAG cache v2 validation...'
+Write-Host 'Applying RAG cache v2 namespace...'
 
 $path = 'RAGControl.Science.cs'
 $text = Read-Utf8Text $path
-$nl = Get-NewLine $text
 
 if (-not $text.Contains('NeZnaika-RAG-cache-v2|')) {
-    $oldIdentity = @'
-            string identity =
-                Path.GetFullPath(filePath) + "|" +
-'@
-    $newIdentity = @'
-            string identity =
-                "NeZnaika-RAG-cache-v2|" +
-                Path.GetFullPath(filePath) + "|" +
-'@
-    $oldIdentity = $oldIdentity.TrimEnd("`r", "`n").Replace("`n", $nl)
-    $newIdentity = $newIdentity.TrimEnd("`r", "`n").Replace("`n", $nl)
-    if (-not $text.Contains($oldIdentity)) {
-        throw 'Could not locate persistent RAG cache identity.'
+    $pattern = '(?ms)(^\s*string\s+identity\s*=\s*\r?\n)(\s*)Path\.GetFullPath\(filePath\)\s*\+\s*"\|"\s*\+'
+    $match = [regex]::Match($text, $pattern)
+    if (-not $match.Success) {
+        throw 'Could not locate persistent RAG cache identity with regex.'
     }
-    $text = $text.Replace($oldIdentity, $newIdentity)
-}
 
-if (-not $text.Contains('cached.Indexes.Values.Any(index => index != null && index.Count > 0)')) {
-    $oldLoad = @'
-                var cached = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, cachePath);
-                cached.Load();
-                database = cached;
-                return true;
-'@
-    $newLoad = @'
-                var cached = new HyperVectorDB.HyperVectorDB(ThisAddIn.Embedder, cachePath);
-                cached.Load();
+    $indent = $match.Groups[2].Value
+    $replacement =
+        $match.Groups[1].Value +
+        $indent + '"NeZnaika-RAG-cache-v2|" +' + [Environment]::NewLine +
+        $indent + 'Path.GetFullPath(filePath) + "|" +'
 
-                bool hasDocuments = cached.Indexes != null &&
-                    cached.Indexes.Values.Any(index => index != null && index.Count > 0);
-                if (!hasDocuments)
-                    return false;
-
-                database = cached;
-                return true;
-'@
-    $oldLoad = $oldLoad.TrimEnd("`r", "`n").Replace("`n", $nl)
-    $newLoad = $newLoad.TrimEnd("`r", "`n").Replace("`n", $nl)
-    if (-not $text.Contains($oldLoad)) {
-        throw 'Could not locate persistent RAG cache load block.'
-    }
-    $text = $text.Replace($oldLoad, $newLoad)
+    $text = [regex]::Replace(
+        $text,
+        $pattern,
+        [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement },
+        1
+    )
 }
 
 Write-Utf8Text $path $text
 
 $verify = Read-Utf8Text $path
 if (-not $verify.Contains('NeZnaika-RAG-cache-v2|')) {
-    throw 'RAG cache v2 identity is missing.'
-}
-if (-not $verify.Contains('cached.Indexes.Values.Any(index => index != null && index.Count > 0)')) {
-    throw 'RAG cache empty-index validation is missing.'
+    throw 'RAG cache v2 namespace is missing.'
 }
 
-Write-Host 'RAG cache v2 validation applied successfully.'
+Write-Host 'RAG cache v2 namespace applied successfully.'

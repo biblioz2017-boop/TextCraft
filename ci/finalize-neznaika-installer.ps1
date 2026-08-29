@@ -5,10 +5,6 @@ if (-not [System.IO.Directory]::Exists($artifact)) {
     throw 'Artifact directory does not exist.'
 }
 
-# IMPORTANT: Everything written to executable .ps1/.cmd files below is deliberately
-# ASCII-only. Windows PowerShell 5.1 interprets UTF-8-without-BOM source files using
-# the active ANSI code page. An ASCII-only installer therefore parses correctly on
-# every Windows locale, even if a ZIP tool strips or rewrites a UTF-8 BOM.
 $ascii = [System.Text.Encoding]::ASCII
 
 $installer = @'
@@ -32,7 +28,7 @@ function Wait-ForWordToClose {
 
 try {
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.24 - Microsoft Word add-in setup' -ForegroundColor Cyan
+    Write-Host 'NeZnaika 1.0.25 - Microsoft Word add-in setup' -ForegroundColor Cyan
     Write-Host '================================================'
 
     Wait-ForWordToClose
@@ -69,7 +65,7 @@ try {
 
     Write-Host '[4/4] Done.'
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.24 was installed successfully.' -ForegroundColor Green
+    Write-Host 'NeZnaika 1.0.25 was installed successfully.' -ForegroundColor Green
     Write-Host 'Open Microsoft Word and use the NeZnaika tab.'
     [void](Read-Host 'Press Enter to close this window')
     exit 0
@@ -85,7 +81,7 @@ catch {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.24 Installer
+title NeZnaika 1.0.25 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
