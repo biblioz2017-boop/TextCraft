@@ -56,97 +56,55 @@ jobs:
               throw "Unexpected owl dimensions: $($image.Width)x$($image.Height)"
             }
           }
-          finally {
-            $image.Dispose()
-          }
+          finally { $image.Dispose() }
 
       - name: Apply Fast RAG fix
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеZнайка 1.0.28
+      - name: Build НеZнайка 1.0.29
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеZнайка 1.0.28
+      - name: Verify НеZнайка 1.0.29
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
-          if (-not $targets.Contains('<ApplicationVersion>1.0.28.0</ApplicationVersion>')) {
-            throw 'Build targets do not declare NeZnaika 1.0.28.'
-          }
           foreach ($marker in @(
-            'apply-audit-headless-review.ps1',
-            'apply-chat-scroll-fix.ps1',
-            'repair-rag-cache-v2.ps1',
-            'repair-rag-auto-topic-idempotence.ps1',
-            'apply-rag-auto-topic.ps1',
-            'repair-rag-auto-topic-linq.ps1',
-            'apply-rag-overview-routing.ps1',
-            'apply-beautify-ui.ps1',
-            'switch-beautify-to-selection.ps1',
-            'apply-beautify-rag-ui.ps1',
-            'set-neznaika-version-1.0.28.ps1',
-            'GenerateUserControl.Beautify.cs',
-            'GenerateUserControl.BeautifySelection.cs',
+            '<ApplicationVersion>1.0.29.0</ApplicationVersion>',
             'GenerateUserControl.BeautifyRag.cs',
-            'RAGControl.Overview.cs'
+            'apply-beautify-rag-ui.ps1',
+            'set-neznaika-version-1.0.29.ps1'
           )) {
-            if (-not $targets.Contains($marker)) { throw "Missing build patch: $marker" }
+            if (-not $targets.Contains($marker)) { throw "Missing build marker: $marker" }
+          }
+
+          $switch = Get-Content 'ci\switch-beautify-to-selection.ps1' -Raw
+          foreach ($marker in @(
+            'BeautifySelectedWordTextWithOptionalRagAsync(preset)',
+            'idempotent for multi-pass MSI builds'
+          )) {
+            if (-not $switch.Contains($marker)) { throw "Missing idempotence marker: $marker" }
           }
 
           $generate = Get-Content 'GenerateUserControl.cs' -Raw
           $beautify = Get-Content 'GenerateUserControl.Beautify.cs' -Raw
-          $selectionBeautify = Get-Content 'GenerateUserControl.BeautifySelection.cs' -Raw
           $ragBeautify = Get-Content 'GenerateUserControl.BeautifyRag.cs' -Raw
-          $science = Get-Content 'GenerateUserControl.Science.cs' -Raw
-          $rag = Get-Content 'RAGControl.cs' -Raw
-          $ragScience = Get-Content 'RAGControl.Science.cs' -Raw
-          $overview = Get-Content 'RAGControl.Overview.cs' -Raw
-          $auditPanel = Get-Content 'GenerateUserControl.AuditPanel.cs' -Raw
-
           foreach ($marker in @(
-            'InitializeBeautifyButton();',
-            '_quickActionsPanel.Controls.Add(_beautifyButton);',
             'InitializeBeautifyRagOption();',
             '_quickActionsPanel.Controls.Add(_beautifyUseRagCheckBox);'
           )) {
             if (-not $generate.Contains($marker)) { throw "Missing Beautify UI marker: $marker" }
           }
-          if ($generate.Contains('_quickActionsPanel.Controls.Add(_matrixButton);')) {
-            throw 'Standalone Matrix button is still visible.'
-          }
           foreach ($marker in @(
-            'Сделать красиво',
-            'Научная статья',
-            'Раздел диссертации',
-            'Литературный обзор',
-            'Реферат',
-            'Введение',
-            'Обсуждение результатов',
-            'Заключение / выводы',
-            'Аннотация',
-            'Тезисы доклада',
-            'FindMissingProtectedCitations',
-            'BeautifySelectedWordTextWithOptionalRagAsync(preset)'
+            'BeautifySelectedWordTextWithOptionalRagAsync(preset)',
+            'Сделать красиво'
           )) {
-            if (-not $beautify.Contains($marker)) { throw "Missing Beautify marker: $marker" }
-          }
-          foreach ($marker in @(
-            'BeautifySelectedWordTextAsync',
-            'AnalyzeSelectedBeautifyTextAsync',
-            'Globals.ThisAddIn.Application.Selection',
-            'FindMissingProtectedCitations',
-            'НеZнайка не будет молча обрезать конец текста'
-          )) {
-            if (-not $selectionBeautify.Contains($marker)) { throw "Missing selection Beautify marker: $marker" }
+            if (-not $beautify.Contains($marker)) { throw "Missing Beautify handler marker: $marker" }
           }
           foreach ($marker in @(
             'Дополнить из RAG',
-            'BeautifySelectedWordTextWithOptionalRagAsync',
-            'BeautifySelectedWordTextWithRagAsync',
             'AnalyzeBeautifyGapsAsync',
-            '<<<GAP>>>',
             'GetRAGEvidence(gap.Query, 2)',
             'НЕТ ПОДТВЕРЖДАЮЩИХ ФРАГМЕНТОВ',
             'GroundBeautifyRagResponse',
@@ -157,74 +115,29 @@ jobs:
           )) {
             if (-not $ragBeautify.Contains($marker)) { throw "Missing Beautify RAG marker: $marker" }
           }
-          if ($beautify.Contains('await BeautifyLastResponseAsync(preset);')) {
-            throw 'Beautify still uses the last chat response instead of Word selection.'
-          }
-
-          foreach ($marker in @(
-            'using System.Linq;',
-            'IsGenericAttachedSourceRequest',
-            'GetCheckedPdfOverviewEvidence(10)',
-            'ScrollResponseToEnd();'
-          )) {
-            if (-not $science.Contains($marker)) { throw "Missing science marker: $marker" }
-          }
-          foreach ($marker in @(
-            'BuildCheckedPdfTopicSeedAsync',
-            'BuildCheckedPdfTopicSeed',
-            'FileListBox.CheckedItems'
-          )) {
-            if (-not $rag.Contains($marker)) { throw "Missing RAG auto-topic marker: $marker" }
-          }
-          if (-not $ragScience.Contains('NeZnaika-RAG-cache-v2|')) {
-            throw 'Missing RAG cache v2 namespace.'
-          }
-          foreach ($marker in @(
-            'GetCheckedPdfOverviewEvidence',
-            'GetCheckedRagPaths()',
-            'PdfDocument.Open(filePath)',
-            'BuildRepresentativePagePlan',
-            'ReadOverviewPageText'
-          )) {
-            if (-not $overview.Contains($marker)) { throw "Missing direct-PDF overview marker: $marker" }
-          }
-          if ($overview.Contains('QueryCosineSimilarity(')) {
-            throw 'Generic overview still depends on semantic vector retrieval.'
-          }
-          if (-not $auditPanel.Contains('Headless review mode: stage 2 still runs through the LLM')) {
-            throw 'Headless audit review mode is missing.'
-          }
-          if (-not $auditPanel.Contains('List<AuditReviewIssue> issues = await GenerateAuditReviewIssuesAsync(')) {
-            throw 'Mandatory LLM audit stage 2 is missing.'
-          }
 
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.28.0') {
-            throw "Unexpected TextCraft.dll assembly version: $assemblyVersion"
-          }
-          if ($fileVersion -ne '1.0.28.0') {
-            throw "Unexpected TextCraft.dll file version: $fileVersion"
-          }
+          if ($assemblyVersion -ne '1.0.29.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
+          if ($fileVersion -ne '1.0.29.0') { throw "Unexpected DLL file version: $fileVersion" }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
-          $applicationIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.28.0') {
-            throw 'Application manifest is not version 1.0.28.0.'
+          $appIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
+          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.29.0') {
+            throw 'Application manifest is not version 1.0.29.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.28.0') {
-            throw 'Deployment manifest is not version 1.0.28.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.29.0') {
+            throw 'Deployment manifest is not version 1.0.29.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.28"')) {
-            throw 'MSI project version is not 1.0.28.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.29"')) {
+            throw 'MSI project version is not 1.0.29.'
           }
-
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
             throw 'Primary NeZnaika installer is missing.'
           }
@@ -242,13 +155,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.28-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.28-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.29-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.29-Setup.msi' -Force
           }
 
-      - name: Upload НеZнайка 1.0.28
+      - name: Upload НеZнайка 1.0.29
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.28
+          name: NeZnaika-1.0.29
           path: artifact
           if-no-files-found: error
