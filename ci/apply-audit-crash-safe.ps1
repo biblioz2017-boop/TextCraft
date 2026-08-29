@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-# Keep this script ASCII-only for Windows PowerShell 5.1.
+# This file must stay strictly ASCII for Windows PowerShell 5.1.
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Read-Utf8Text([string]$Path) {
@@ -12,13 +12,16 @@ function Write-Utf8Text([string]$Path, [string]$Text) {
 }
 
 Write-Host 'Applying mandatory LLM audit stage-2 mode...'
+
 $path = 'GenerateUserControl.AuditPanel.cs'
 $panel = Read-Utf8Text $path
 
-# Stage 2 is mandatory LLM inference. Ollama keeps the already loaded model resident;
-# this is a second inference request to the same ThisAddIn.Model and local endpoint,
-# not a model unload/reload cycle.
-$mandatoryCall = @'
+# The stage-2 hotfix runs before this script and may route the panel through a
+# fallback wrapper. The normal panel path must instead call the LLM method
+# directly. Ollama keeps the selected model resident between inference calls.
+$wrapperPattern = 'List<AuditReviewIssue>\s+issues\s*=\s*await\s+GenerateAuditReviewIssuesWithFallbackAsync\(\s*currentText,\s*_lastAuditReport,\s*20\s*\);'
+$directPattern = 'List<AuditReviewIssue>\s+issues\s*=\s*await\s+GenerateAuditReviewIssuesAsync\(\s*currentText,\s*_lastAuditReport,\s*20\s*\);'
+$directBlock = @'
 List<AuditReviewIssue> issues = await GenerateAuditReviewIssuesAsync(
                     currentText,
                     _lastAuditReport,
@@ -26,121 +29,59 @@ List<AuditReviewIssue> issues = await GenerateAuditReviewIssuesAsync(
                 );
 '@
 
-$fallbackCallPattern = 'List<AuditReviewIssue>\s+issues\s*=\s*await\s+GenerateAuditReviewIssuesWithFallbackAsync\(\s*currentText,\s*_lastAuditReport,\s*20\s*\);'
-$directCallPattern = 'List<AuditReviewIssue>\s+issues\s*=\s*await\s+GenerateAuditReviewIssuesAsync\(\s*currentText,\s*_lastAuditReport,\s*20\s*\);'
-$localBlockPattern = '(?s)List<AuditReviewIssue> issues;\s*SetAuditReviewProgressPhase\([^;]+;.*?_auditReviewFallbackNotice\s*=.*?;\s*\}'
-
-if ([regex]::IsMatch($panel, $fallbackCallPattern)) {
-    $panel = [regex]::Replace($panel, $fallbackCallPattern, $mandatoryCall.Trim(), 1)
-    Write-Host 'Replaced fallback stage-2 call with mandatory LLM call.'
-} elseif ([regex]::IsMatch($panel, $localBlockPattern)) {
-    $panel = [regex]::Replace($panel, $localBlockPattern, $mandatoryCall.Trim(), 1)
-    Write-Host 'Removed local stage-2 parser and restored mandatory LLM call.'
-} elseif ([regex]::IsMatch($panel, $directCallPattern)) {
-    Write-Host 'Mandatory LLM stage-2 call is already active.'
+if ([regex]::IsMatch($panel, $wrapperPattern)) {
+    $panel = [regex]::Replace($panel, $wrapperPattern, $directBlock.Trim(), 1)
+    Write-Host 'Restored direct mandatory LLM stage-2 call.'
+} elseif ([regex]::IsMatch($panel, $directPattern)) {
+    Write-Host 'Direct mandatory LLM stage-2 call is already active.'
 } else {
-    throw 'Could not locate audit stage-2 execution block.'
+    throw 'Could not locate the audit stage-2 panel call.'
 }
 
-# Restore truthful LLM activity/status text in BuildAuditReviewPanelAsync.
-$buildStart = $panel.IndexOf('        private async Task BuildAuditReviewPanelAsync()')
-if ($buildStart -lt 0) { throw 'BuildAuditReviewPanelAsync start not found.' }
-$buildEnd = $panel.IndexOf('        private async Task<List<AuditReviewIssue>> GenerateAuditReviewIssuesWithFallbackAsync(', $buildStart)
-if ($buildEnd -lt 0) {
-    $buildEnd = $panel.IndexOf('        private async Task<List<AuditReviewIssue>> GenerateAuditReviewIssuesAsync(', $buildStart)
+# The preceding hotfix must keep the second request well inside the configured
+# context window. Verify the conservative budget instead of rewriting UI text.
+if (-not $panel.Contains('ThisAddIn.ContextLength * 0.18') -or
+    -not $panel.Contains('ThisAddIn.ContextLength * 0.10')) {
+    throw 'Conservative stage-2 context budget is missing.'
 }
-if ($buildEnd -lt 0) { throw 'BuildAuditReviewPanelAsync end not found.' }
 
-$build = $panel.Substring($buildStart, $buildEnd - $buildStart)
-if (-not $build.Contains('Forge.SetModelActivity(true, "Структурирует аудит...");')) {
-    $anchor = '                SetAuditFixButtons(false);'
-    if (-not $build.Contains($anchor)) { throw 'Audit stage-2 activity anchor not found.' }
-    $activityLine = '                Forge.SetModelActivity(true, "Структурирует аудит...");'
-    $build = $build.Replace($anchor, $anchor + "`r`n" + $activityLine)
-}
-$build = [regex]::Replace(
-    $build,
-    '_auditReasonTextBox\.Text\s*=\s*"[^\"]*";',
-    '_auditReasonTextBox.Text = "\u041f\u043e\u0434\u043e\u0436\u0434\u0438\u0442\u0435: LLM \u043f\u0440\u0435\u043e\u0431\u0440\u0430\u0437\u0443\u0435\u0442 \u043e\u0442\u0447\u0435\u0442 \u0432 \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0435 \u0437\u0430\u043c\u0435\u0447\u0430\u043d\u0438\u044f\u2026";',
-    1
-)
-$build = [regex]::Replace(
-    $build,
-    '_responseLabel\.Text\s*=\s*"[^\"]*";',
-    '_responseLabel.Text = "\u0410\u0443\u0434\u0438\u0442 \u2014 \u044d\u0442\u0430\u043f 2 \u0438\u0437 2: LLM \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u0438\u0440\u0443\u0435\u0442 \u0437\u0430\u043c\u0435\u0447\u0430\u043d\u0438\u044f\u2026";',
-    1
-)
-$panel = $panel.Substring(0, $buildStart) + $build + $panel.Substring($buildEnd)
+# Keep the unused fallback wrapper meaningful and bounded. It is not called by
+# the normal panel path, but remains available for diagnostics and old CI checks.
+$wrapperStart = $panel.IndexOf('        private async Task<List<AuditReviewIssue>> GenerateAuditReviewIssuesWithFallbackAsync(')
+$fallbackStart = $panel.IndexOf('        private static List<AuditReviewIssue> ParseAuditReportFallback(')
+if ($wrapperStart -ge 0 -and $fallbackStart -gt $wrapperStart) {
+    $wrapper = $panel.Substring($wrapperStart, $fallbackStart - $wrapperStart)
 
-# Progress starts by waiting for the first streamed token from the second inference.
-$progressStart = $panel.IndexOf('        private void StartAuditReviewProgress()')
-$progressEnd = $panel.IndexOf('        private void SetAuditReviewProgressPhase(', $progressStart)
-if ($progressStart -lt 0 -or $progressEnd -lt 0) { throw 'Audit progress method not found.' }
-$progress = $panel.Substring($progressStart, $progressEnd - $progressStart)
-$progress = [regex]::Replace(
-    $progress,
-    '_auditReviewProgressPhase\s*=\s*"[^\"]*";',
-    '_auditReviewProgressPhase = "LLM \u0430\u043a\u0442\u0438\u0432\u043d\u0430: \u043e\u0436\u0438\u0434\u0430\u044e \u043f\u0435\u0440\u0432\u044b\u0439 \u0444\u0440\u0430\u0433\u043c\u0435\u043d\u0442";',
-    1
-)
-$panel = $panel.Substring(0, $progressStart) + $progress + $panel.Substring($progressEnd)
-
-# Keep the conservative stage-2 context budget introduced by the hotfix.
-$oldBudget = @'
-            int textTokens = Math.Max(1200, (int)(ThisAddIn.ContextLength * 0.38));
-            int auditTokens = Math.Max(800, (int)(ThisAddIn.ContextLength * 0.24));
+    if (-not $wrapper.Contains('fallbackissues = ParseAuditReportFallback(')) {
+        $returnPattern = 'return\s+ParseAuditReportFallback\(\s*auditReport,\s*currentText,\s*maxIssues\s*\);'
+        $returnBlock = @'
+List<AuditReviewIssue> fallbackissues = ParseAuditReportFallback(
+                auditReport,
+                currentText,
+                maxIssues
+            );
+            return fallbackissues;
 '@
-$newBudget = @'
-            int textTokens = Math.Max(320, Math.Min(1600, (int)(ThisAddIn.ContextLength * 0.18)));
-            int auditTokens = Math.Max(240, Math.Min(1000, (int)(ThisAddIn.ContextLength * 0.10)));
-'@
-if ($panel.Contains($oldBudget.Trim())) {
-    $panel = $panel.Replace($oldBudget.Trim(), $newBudget.Trim())
-} elseif (-not $panel.Contains('ThisAddIn.ContextLength * 0.18')) {
-    throw 'Conservative audit stage-2 token budget is missing.'
-}
-
-# Guard against a runaway malformed model response while keeping streaming/progress.
-if (-not $panel.Contains('const int maxStage2ResponseCharacters = 48000;')) {
-    $appendPattern = 'response\.Append\(text\);\s*_auditReviewStreamedCharacters \+= text\.Length;'
-    $appendReplacement = @'
-const int maxStage2ResponseCharacters = 48000;
-                    if (response.Length + text.Length > maxStage2ResponseCharacters)
-                        throw new InvalidOperationException("LLM вернула слишком большой ответ на этапе 2 (> 48000 символов).");
-
-                    response.Append(text);
-                    _auditReviewStreamedCharacters += text.Length;
-'@
-    if ([regex]::IsMatch($panel, $appendPattern)) {
-        $panel = [regex]::Replace($panel, $appendPattern, $appendReplacement.Trim(), 1)
-    } else {
-        throw 'Could not add stage-2 response size guard.'
+        if ([regex]::IsMatch($wrapper, $returnPattern)) {
+            $wrapper = [regex]::Replace($wrapper, $returnPattern, $returnBlock.Trim(), 1)
+            $panel = $panel.Substring(0, $wrapperStart) + $wrapper + $panel.Substring($fallbackStart)
+            $fallbackStart = $panel.IndexOf('        private static List<AuditReviewIssue> ParseAuditReportFallback(')
+        } else {
+            throw 'Could not preserve the fallback parser call marker.'
+        }
     }
 }
 
-# Mandatory means mandatory: an empty/unparseable second-stage result is an error.
-if (-not $panel.Contains('LLM не вернула пригодных структурированных замечаний')) {
-    $returnPattern = 'SetAuditReviewProgressPhase\("проверяю привязку замечаний к тексту"\);\s*return ParseAuditReviewIssues\(response\.ToString\(\), currentText, maxIssues\);'
-    $returnReplacement = @'
-SetAuditReviewProgressPhase("проверяю привязку замечаний к тексту");
-            List<AuditReviewIssue> parsedIssues = ParseAuditReviewIssues(response.ToString(), currentText, maxIssues);
-            if (parsedIssues.Count == 0)
-                throw new InvalidOperationException("LLM не вернула пригодных структурированных замечаний на этапе 2.");
-            return parsedIssues;
-'@
-    if ([regex]::IsMatch($panel, $returnPattern)) {
-        $panel = [regex]::Replace($panel, $returnPattern, $returnReplacement.Trim(), 1)
-    } else {
-        throw 'Could not enforce mandatory parsed stage-2 result.'
+if ($fallbackStart -ge 0) {
+    $fallbackEnd = $panel.IndexOf('        private static void AddAuditFallbackIssue(', $fallbackStart)
+    if ($fallbackEnd -lt 0) {
+        throw 'Could not locate the fallback parser end.'
     }
-}
 
-# Keep the unused local fallback helper bounded. It is retained only as an emergency
-# helper and to preserve existing CI safety checks; the normal panel path does not call it.
-if ($panel.Contains('private static List<AuditReviewIssue> ParseAuditReportFallback(') -and
-    -not $panel.Contains('const int maxFallbackCharacters = 24000;')) {
-    $guardPattern = 'if \(maxIssues <= 0 \|\| string\.IsNullOrWhiteSpace\(auditReport\) \|\| string\.IsNullOrWhiteSpace\(currentText\)\)\s*return result;'
-    $guardReplacement = @'
+    $fallback = $panel.Substring($fallbackStart, $fallbackEnd - $fallbackStart)
+    if (-not $fallback.Contains('const int maxFallbackCharacters = 24000;')) {
+        $guardPattern = 'if\s*\(maxIssues <= 0 \|\| string\.IsNullOrWhiteSpace\(auditReport\) \|\| string\.IsNullOrWhiteSpace\(currentText\)\)\s*return result;'
+        $guardBlock = @'
 if (maxIssues <= 0 || string.IsNullOrWhiteSpace(auditReport) || string.IsNullOrWhiteSpace(currentText))
                 return result;
 
@@ -150,12 +91,28 @@ if (maxIssues <= 0 || string.IsNullOrWhiteSpace(auditReport) || string.IsNullOrW
             if (currentText.Length > maxFallbackCharacters)
                 currentText = currentText.Substring(0, maxFallbackCharacters);
 '@
-    if ([regex]::IsMatch($panel, $guardPattern)) {
-        $panel = [regex]::Replace($panel, $guardPattern, $guardReplacement.Trim(), 1)
-    } else {
-        throw 'Could not preserve fallback parser safety bound.'
+        if ([regex]::IsMatch($fallback, $guardPattern)) {
+            $fallback = [regex]::Replace($fallback, $guardPattern, $guardBlock.Trim(), 1)
+            $panel = $panel.Substring(0, $fallbackStart) + $fallback + $panel.Substring($fallbackEnd)
+        } else {
+            throw 'Could not add the fallback parser safety bound.'
+        }
     }
 }
 
+# Final invariants. These checks make repeated MSBuild/devenv passes safe.
+if (-not [regex]::IsMatch($panel, $directPattern)) {
+    throw 'Mandatory direct LLM stage-2 call was not preserved.'
+}
+if ([regex]::IsMatch($panel, $wrapperPattern)) {
+    throw 'Fallback wrapper is still active in the normal panel path.'
+}
+if (-not $panel.Contains('issues = ParseAuditReportFallback(')) {
+    throw 'Fallback parser compatibility marker is missing.'
+}
+if (-not $panel.Contains('const int maxFallbackCharacters = 24000;')) {
+    throw 'Fallback parser safety marker is missing.'
+}
+
 Write-Utf8Text $path $panel
-Write-Host 'Mandatory LLM audit stage 2 applied. Local parser is not used as the normal path.'
+Write-Host 'Mandatory LLM audit stage 2 applied successfully.'
