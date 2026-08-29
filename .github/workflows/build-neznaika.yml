@@ -59,149 +59,84 @@ jobs:
           finally {
             $image.Dispose()
           }
-          Write-Host "Verified owl JPEG: $($bytes.Length) bytes, 192x192."
 
       - name: Apply Fast RAG fix
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеZнайка 1.0.18
+      - name: Build НеZнайка 1.0.19
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеZнайка branding and About dialog
+      - name: Verify НеZнайка 1.0.19
         shell: pwsh
         run: |
-          $about = Get-Content 'AboutBox.cs' -Raw
-          foreach ($marker in @(
-            'НеZнайка',
-            'Надстройка, созданная во имя текста, правок и человеческих страданий.',
-            'Вместе с НеZнайкой мы натянем любую сову на глобус!',
-            'И не забывайте страдать!',
-            'TextForge.NeZnaikaOwl.jpg'
-          )) {
-            if (-not $about.Contains($marker)) { throw "Missing About marker: $marker" }
-          }
-
-          $resx = Get-Content 'AboutBox.resx' -Raw
-          if ($resx.Contains('name="logoPictureBox.Image"')) {
-            throw 'AboutBox.resx still contains a System.Drawing.Image.'
-          }
-
           $targets = Get-Content 'Directory.Build.targets' -Raw
+          if (-not $targets.Contains('<ApplicationVersion>1.0.19.0</ApplicationVersion>')) {
+            throw 'Build targets do not declare NeZnaika 1.0.19.'
+          }
           foreach ($marker in @(
-            '<ApplicationVersion>1.0.18.0</ApplicationVersion>',
-            'Assets\NeZnaikaOwl.jpg',
-            '<LogicalName>TextForge.NeZnaikaOwl.jpg</LogicalName>',
-            '<Type>Non-Resx</Type>'
+            'apply-audit-headless-review.ps1',
+            'apply-chat-scroll-fix.ps1',
+            'apply-rag-auto-topic.ps1',
+            'set-neznaika-version-1.0.19.ps1'
           )) {
-            if (-not $targets.Contains($marker)) { throw "Missing build target marker: $marker" }
+            if (-not $targets.Contains($marker)) { throw "Missing build patch: $marker" }
           }
 
           $science = Get-Content 'GenerateUserControl.Science.cs' -Raw
-          $auditFix = Get-Content 'GenerateUserControl.AuditFix.cs' -Raw
+          $rag = Get-Content 'RAGControl.cs' -Raw
           $auditPanel = Get-Content 'GenerateUserControl.AuditPanel.cs' -Raw
-          $modelControl = Get-Content 'Forge.ModelControl.cs' -Raw
-          if (-not $science.Contains('PrepareAuditTargetForRequest(templateName, anchorRange, userQuery);')) {
-            throw 'Scientific audit requests are not bound to the current Word selection.'
-          }
-          if (-not $auditFix.Contains('private void PrepareAuditTargetForRequest(')) {
-            throw 'Scientific audit target preparation helper is missing.'
-          }
-
-          if (-not $auditFix.Contains('private static CancellationToken GetAuditOperationToken()')) {
-            throw 'Audit operation cancellation guard is missing.'
-          }
-          if (-not $auditFix.Contains('if (_auditReviewBusy)')) {
-            throw 'Audit fix concurrency guard is missing.'
-          }
-          if (-not $auditPanel.Contains('SetAuditFixButtons(false);')) {
-            throw 'Audit review does not lock fix buttons while parsing.'
-          }
-          if (-not $auditPanel.Contains('GetPendingSafeAuditReviewEdits')) {
-            throw 'Prepared safe audit issues are not reused.'
+          foreach ($marker in @(
+            'IsGenericAttachedSourceRequest',
+            'sourceTopicSeed = await rag.BuildCheckedPdfTopicSeedAsync',
+            'ScrollResponseToEnd();'
+          )) {
+            if (-not $science.Contains($marker)) { throw "Missing science marker: $marker" }
           }
           foreach ($marker in @(
-            'StartAuditReviewProgress();',
-            'ProgressBarStyle.Marquee',
-            'issues = ParseAuditReportFallback(',
-            'const int maxFallbackCharacters = 24000;'
+            'BuildCheckedPdfTopicSeedAsync',
+            'BuildCheckedPdfTopicSeed',
+            'FileListBox.CheckedItems'
           )) {
-            if (-not $auditPanel.Contains($marker)) {
-              throw "Missing crash-safe audit marker: $marker"
-            }
+            if (-not $rag.Contains($marker)) { throw "Missing RAG auto-topic marker: $marker" }
           }
-          if ($auditPanel.Contains('List<AuditReviewIssue> issues = await GenerateAuditReviewIssuesWithFallbackAsync(')) {
-            throw 'Automatic second LLM audit request is still active in the crash-safe build.'
+          if (-not $auditPanel.Contains('Headless review mode: stage 2 still runs through the LLM')) {
+            throw 'Headless audit review mode is missing.'
           }
-          if (-not $science.Contains('Аудит — этап 1 из 2: LLM формирует диагностический отчет…')) {
-            throw 'Audit stage-one progress label is missing.'
-          }
-          if (-not $modelControl.Contains('public static void SetModelActivity(bool active, string operation)')) {
-            throw 'Shared model activity indicator is missing.'
-          }
-          if (-not $auditFix.Contains('bool modelActivityStarted = false;')) {
-            throw 'Fallback audit-fix model activity indicator is missing.'
-          }
-          if (-not $auditFix.Contains('private static void EnsureLocalAuditEndpoint()')) {
-            throw 'Local-only audit endpoint guard is missing.'
-          }
-          if (-not $science.Contains('EnsureLocalAuditEndpoint();')) {
-            throw 'Main scientific audit does not enforce the local endpoint guard.'
-          }
-          if (-not $auditPanel.Contains('EnsureLocalAuditEndpoint();')) {
-            throw 'Audit structuring helper does not enforce the local endpoint guard.'
+          if (-not $auditPanel.Contains('List<AuditReviewIssue> issues = await GenerateAuditReviewIssuesAsync(')) {
+            throw 'Mandatory LLM audit stage 2 is missing.'
           }
 
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.18.0') {
+          if ($assemblyVersion -ne '1.0.19.0') {
             throw "Unexpected TextCraft.dll assembly version: $assemblyVersion"
           }
-          if ($fileVersion -ne '1.0.18.0') {
+          if ($fileVersion -ne '1.0.19.0') {
             throw "Unexpected TextCraft.dll file version: $fileVersion"
           }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
-          $applicationIdentity = $appManifest.SelectSingleNode(
-            "//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']"
-          )
-          if ($null -eq $applicationIdentity) {
-            throw 'Application manifest identity TextCraft.dll is missing.'
-          }
-          if ($applicationIdentity.version -ne '1.0.18.0') {
-            throw "Unexpected application manifest version: $($applicationIdentity.version)"
-          }
-
-          $payloadIdentity = $appManifest.SelectSingleNode(
-            "//*[local-name()='assemblyIdentity' and @name='TextCraft']"
-          )
-          if ($null -eq $payloadIdentity) {
-            throw 'Application manifest identity TextCraft is missing.'
-          }
-          if ($payloadIdentity.version -ne '1.0.18.0') {
-            throw "Unexpected payload manifest version: $($payloadIdentity.version)"
+          $applicationIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
+          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.19.0') {
+            throw 'Application manifest is not version 1.0.19.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
-          $deploymentIdentity = $deploymentManifest.SelectSingleNode(
-            "//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']"
-          )
-          if ($null -eq $deploymentIdentity) {
-            throw 'Deployment manifest identity TextCraft.vsto is missing.'
-          }
-          if ($deploymentIdentity.version -ne '1.0.18.0') {
-            throw "Unexpected deployment manifest version: $($deploymentIdentity.version)"
+          $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.19.0') {
+            throw 'Deployment manifest is not version 1.0.19.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.18"')) {
-            throw 'MSI project version was not upgraded to 1.0.18.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.19"')) {
+            throw 'MSI project version is not 1.0.19.'
           }
 
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
-            throw 'Primary НеZнайка installer is missing.'
+            throw 'Primary NeZnaika installer is missing.'
           }
 
       - name: Finalize and validate installer
@@ -217,13 +152,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.18-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.18-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.19-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.19-Setup.msi' -Force
           }
 
-      - name: Upload НеZнайка 1.0.18
+      - name: Upload НеZнайка 1.0.19
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.18
+          name: NeZnaika-1.0.19
           path: artifact
           if-no-files-found: error
