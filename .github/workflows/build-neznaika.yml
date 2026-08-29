@@ -64,25 +64,26 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеZнайка 1.0.23
+      - name: Build НеZнайка 1.0.24
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеZнайка 1.0.23
+      - name: Verify НеZнайка 1.0.24
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
-          if (-not $targets.Contains('<ApplicationVersion>1.0.23.0</ApplicationVersion>')) {
-            throw 'Build targets do not declare NeZnaika 1.0.23.'
+          if (-not $targets.Contains('<ApplicationVersion>1.0.24.0</ApplicationVersion>')) {
+            throw 'Build targets do not declare NeZnaika 1.0.24.'
           }
           foreach ($marker in @(
             'apply-audit-headless-review.ps1',
             'apply-chat-scroll-fix.ps1',
+            'repair-rag-cache-v2.ps1',
             'repair-rag-auto-topic-idempotence.ps1',
             'apply-rag-auto-topic.ps1',
             'repair-rag-auto-topic-linq.ps1',
             'apply-rag-overview-routing.ps1',
-            'set-neznaika-version-1.0.23.ps1',
+            'set-neznaika-version-1.0.24.ps1',
             'RAGControl.Overview.cs'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build patch: $marker" }
@@ -90,6 +91,7 @@ jobs:
 
           $science = Get-Content 'GenerateUserControl.Science.cs' -Raw
           $rag = Get-Content 'RAGControl.cs' -Raw
+          $ragScience = Get-Content 'RAGControl.Science.cs' -Raw
           $overview = Get-Content 'RAGControl.Overview.cs' -Raw
           $auditPanel = Get-Content 'GenerateUserControl.AuditPanel.cs' -Raw
           foreach ($marker in @(
@@ -108,12 +110,22 @@ jobs:
             if (-not $rag.Contains($marker)) { throw "Missing RAG auto-topic marker: $marker" }
           }
           foreach ($marker in @(
-            'GetCheckedPdfOverviewEvidence',
-            'GetActiveRagDatabases()',
-            'QueryCosineSimilarity(overviewQuery, 2)',
-            'countByFile'
+            'NeZnaika-RAG-cache-v2|',
+            'cached.Indexes.Values.Any(index => index != null && index.Count > 0)'
           )) {
-            if (-not $overview.Contains($marker)) { throw "Missing balanced overview marker: $marker" }
+            if (-not $ragScience.Contains($marker)) { throw "Missing RAG cache marker: $marker" }
+          }
+          foreach ($marker in @(
+            'GetCheckedPdfOverviewEvidence',
+            'GetCheckedRagPaths()',
+            'PdfDocument.Open(filePath)',
+            'BuildRepresentativePagePlan',
+            'ReadOverviewPageText'
+          )) {
+            if (-not $overview.Contains($marker)) { throw "Missing direct-PDF overview marker: $marker" }
+          }
+          if ($overview.Contains('QueryCosineSimilarity(')) {
+            throw 'Generic overview still depends on semantic vector retrieval.'
           }
           if (-not $auditPanel.Contains('Headless review mode: stage 2 still runs through the LLM')) {
             throw 'Headless audit review mode is missing.'
@@ -125,28 +137,28 @@ jobs:
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.23.0') {
+          if ($assemblyVersion -ne '1.0.24.0') {
             throw "Unexpected TextCraft.dll assembly version: $assemblyVersion"
           }
-          if ($fileVersion -ne '1.0.23.0') {
+          if ($fileVersion -ne '1.0.24.0') {
             throw "Unexpected TextCraft.dll file version: $fileVersion"
           }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $applicationIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.23.0') {
-            throw 'Application manifest is not version 1.0.23.0.'
+          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.24.0') {
+            throw 'Application manifest is not version 1.0.24.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.23.0') {
-            throw 'Deployment manifest is not version 1.0.23.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.24.0') {
+            throw 'Deployment manifest is not version 1.0.24.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.23"')) {
-            throw 'MSI project version is not 1.0.23.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.24"')) {
+            throw 'MSI project version is not 1.0.24.'
           }
 
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
@@ -166,13 +178,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.23-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.23-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.24-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.24-Setup.msi' -Force
           }
 
-      - name: Upload НеZнайка 1.0.23
+      - name: Upload НеZнайка 1.0.24
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.23
+          name: NeZnaika-1.0.24
           path: artifact
           if-no-files-found: error
