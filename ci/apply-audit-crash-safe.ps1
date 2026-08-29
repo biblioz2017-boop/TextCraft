@@ -135,5 +135,27 @@ SetAuditReviewProgressPhase("проверяю привязку замечани�
     }
 }
 
+# Keep the unused local fallback helper bounded. It is retained only as an emergency
+# helper and to preserve existing CI safety checks; the normal panel path does not call it.
+if ($panel.Contains('private static List<AuditReviewIssue> ParseAuditReportFallback(') -and
+    -not $panel.Contains('const int maxFallbackCharacters = 24000;')) {
+    $guardPattern = 'if \(maxIssues <= 0 \|\| string\.IsNullOrWhiteSpace\(auditReport\) \|\| string\.IsNullOrWhiteSpace\(currentText\)\)\s*return result;'
+    $guardReplacement = @'
+if (maxIssues <= 0 || string.IsNullOrWhiteSpace(auditReport) || string.IsNullOrWhiteSpace(currentText))
+                return result;
+
+            const int maxFallbackCharacters = 24000;
+            if (auditReport.Length > maxFallbackCharacters)
+                auditReport = auditReport.Substring(0, maxFallbackCharacters);
+            if (currentText.Length > maxFallbackCharacters)
+                currentText = currentText.Substring(0, maxFallbackCharacters);
+'@
+    if ([regex]::IsMatch($panel, $guardPattern)) {
+        $panel = [regex]::Replace($panel, $guardPattern, $guardReplacement.Trim(), 1)
+    } else {
+        throw 'Could not preserve fallback parser safety bound.'
+    }
+}
+
 Write-Utf8Text $path $panel
 Write-Host 'Mandatory LLM audit stage 2 applied. Local parser is not used as the normal path.'
