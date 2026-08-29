@@ -32,7 +32,7 @@ function Wait-ForWordToClose {
 
 try {
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.18 - Microsoft Word add-in setup' -ForegroundColor Cyan
+    Write-Host 'NeZnaika 1.0.19 - Microsoft Word add-in setup' -ForegroundColor Cyan
     Write-Host '================================================'
 
     Wait-ForWordToClose
@@ -69,7 +69,7 @@ try {
 
     Write-Host '[4/4] Done.'
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.18 was installed successfully.' -ForegroundColor Green
+    Write-Host 'NeZnaika 1.0.19 was installed successfully.' -ForegroundColor Green
     Write-Host 'Open Microsoft Word and use the NeZnaika tab.'
     [void](Read-Host 'Press Enter to close this window')
     exit 0
@@ -85,7 +85,7 @@ catch {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.18 Installer
+title NeZnaika 1.0.19 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
@@ -101,7 +101,6 @@ foreach ($name in @('00_INSTALL-NeZnaika.cmd', 'INSTALL-NeZnaika.cmd')) {
     [System.IO.File]::WriteAllText((Join-Path $artifact $name), $launcher, $ascii)
 }
 
-# CI guard 1: executable installer sources must stay strictly ASCII.
 foreach ($name in @('Install-NeZnaika.ps1', '00_INSTALL-NeZnaika.cmd', 'INSTALL-NeZnaika.cmd')) {
     $path = Join-Path $artifact $name
     $bytes = [System.IO.File]::ReadAllBytes($path)
@@ -111,8 +110,6 @@ foreach ($name in @('Install-NeZnaika.ps1', '00_INSTALL-NeZnaika.cmd', 'INSTALL-
     }
 }
 
-# CI guard 2: ask the actual Windows PowerShell 5.1 parser to parse the final file.
-# This does not execute the installer.
 $escapedPath = $installerPath.Replace("'", "''")
 $parseCommand = '$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile(''' + $escapedPath + ''',[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count -gt 0){$errors|ForEach-Object{Write-Host $_.Message};exit 1}else{exit 0}'
 & powershell.exe -NoLogo -NoProfile -Command $parseCommand
