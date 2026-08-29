@@ -55,7 +55,8 @@ $build = $panel.Substring($buildStart, $buildEnd - $buildStart)
 if (-not $build.Contains('Forge.SetModelActivity(true, "Структурирует аудит...");')) {
     $anchor = '                SetAuditFixButtons(false);'
     if (-not $build.Contains($anchor)) { throw 'Audit stage-2 activity anchor not found.' }
-    $build = $build.Replace($anchor, $anchor + "`r`n                Forge.SetModelActivity(true, `"Структурирует аудит...`\");")
+    $activityLine = '                Forge.SetModelActivity(true, "Структурирует аудит...");'
+    $build = $build.Replace($anchor, $anchor + "`r`n" + $activityLine)
 }
 $build = [regex]::Replace(
     $build,
@@ -84,8 +85,7 @@ $progress = [regex]::Replace(
 )
 $panel = $panel.Substring(0, $progressStart) + $progress + $panel.Substring($progressEnd)
 
-# Keep the conservative stage-2 context budget introduced by the hotfix. This avoids
-# sending the full dissertation fragment plus full audit report back into the model.
+# Keep the conservative stage-2 context budget introduced by the hotfix.
 $oldBudget = @'
             int textTokens = Math.Max(1200, (int)(ThisAddIn.ContextLength * 0.38));
             int auditTokens = Math.Max(800, (int)(ThisAddIn.ContextLength * 0.24));
@@ -101,31 +101,38 @@ if ($panel.Contains($oldBudget.Trim())) {
 }
 
 # Guard against a runaway malformed model response while keeping streaming/progress.
-$appendAnchor = '                    response.Append(text);`r`n                    _auditReviewStreamedCharacters += text.Length;'
-if ($panel.Contains($appendAnchor) -and -not $panel.Contains('const int maxStage2ResponseCharacters = 48000;')) {
-    $replacement = @'
-                    const int maxStage2ResponseCharacters = 48000;
+if (-not $panel.Contains('const int maxStage2ResponseCharacters = 48000;')) {
+    $appendPattern = 'response\.Append\(text\);\s*_auditReviewStreamedCharacters \+= text\.Length;'
+    $appendReplacement = @'
+const int maxStage2ResponseCharacters = 48000;
                     if (response.Length + text.Length > maxStage2ResponseCharacters)
                         throw new InvalidOperationException("LLM вернула слишком большой ответ на этапе 2 (> 48000 символов).");
 
                     response.Append(text);
                     _auditReviewStreamedCharacters += text.Length;
 '@
-    $panel = $panel.Replace($appendAnchor, $replacement.TrimEnd())
+    if ([regex]::IsMatch($panel, $appendPattern)) {
+        $panel = [regex]::Replace($panel, $appendPattern, $appendReplacement.Trim(), 1)
+    } else {
+        throw 'Could not add stage-2 response size guard.'
+    }
 }
 
-# Mandatory means mandatory: an empty/unparseable second-stage result is an error,
-# not a silent local-parser success.
-$returnAnchor = '            SetAuditReviewProgressPhase("проверяю привязку замечаний к тексту");`r`n            return ParseAuditReviewIssues(response.ToString(), currentText, maxIssues);'
-if ($panel.Contains($returnAnchor) -and -not $panel.Contains('LLM не вернула пригодных структурированных замечаний')) {
-    $replacement = @'
-            SetAuditReviewProgressPhase("проверяю привязку замечаний к тексту");
+# Mandatory means mandatory: an empty/unparseable second-stage result is an error.
+if (-not $panel.Contains('LLM не вернула пригодных структурированных замечаний')) {
+    $returnPattern = 'SetAuditReviewProgressPhase\("проверяю привязку замечаний к тексту"\);\s*return ParseAuditReviewIssues\(response\.ToString\(\), currentText, maxIssues\);'
+    $returnReplacement = @'
+SetAuditReviewProgressPhase("проверяю привязку замечаний к тексту");
             List<AuditReviewIssue> parsedIssues = ParseAuditReviewIssues(response.ToString(), currentText, maxIssues);
             if (parsedIssues.Count == 0)
                 throw new InvalidOperationException("LLM не вернула пригодных структурированных замечаний на этапе 2.");
             return parsedIssues;
 '@
-    $panel = $panel.Replace($returnAnchor, $replacement.TrimEnd())
+    if ([regex]::IsMatch($panel, $returnPattern)) {
+        $panel = [regex]::Replace($panel, $returnPattern, $returnReplacement.Trim(), 1)
+    } else {
+        throw 'Could not enforce mandatory parsed stage-2 result.'
+    }
 }
 
 Write-Utf8Text $path $panel
