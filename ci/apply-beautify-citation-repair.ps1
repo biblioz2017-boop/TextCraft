@@ -157,22 +157,20 @@ if (-not $beautify.Contains('NormalizeProtectedCitationKey(')) {
 $ragPath = 'GenerateUserControl.BeautifyRag.cs'
 $rag = Read-Utf8Text $ragPath
 $ragNl = if ($rag.Contains("`r`n")) { "`r`n" } else { "`n" }
-$repairMarker = 'RepairMissingProtectedCitationsAsync(' + $ragNl + '                        client,'
 
-if (-not $rag.Contains($repairMarker)) {
-    $old = @'
-                List<string> missingCitations = FindMissingProtectedCitations(
-                    boundedSource,
-                    grounded
-                );
-                if (missingCitations.Count > 0)
-                {
-                    throw new InvalidOperationException(
-                        "При переработке потеряны исходные ссылки: " +
-                        string.Join(", ", missingCitations) + ". Выделенный текст Word не изменен."
-                    );
-                }
-'@
+if (-not $rag.Contains('lostDuringRepair')) {
+    # Use stable semantic anchors instead of matching the entire formatted block.
+    $startMarker = '                List<string> missingCitations = FindMissingProtectedCitations('
+    $endMarker = '                ReplaceBeautifyResponse(responseStart, grounded);'
+    $start = $rag.IndexOf($startMarker, [System.StringComparison]::Ordinal)
+    if ($start -lt 0) {
+        throw 'Could not locate citation-validation start marker in Beautify RAG.'
+    }
+    $end = $rag.IndexOf($endMarker, $start, [System.StringComparison]::Ordinal)
+    if ($end -lt 0) {
+        throw 'Could not locate citation-validation end marker in Beautify RAG.'
+    }
+
     $new = @'
                 List<string> missingCitations = FindMissingProtectedCitations(
                     boundedSource,
@@ -210,13 +208,10 @@ if (-not $rag.Contains($repairMarker)) {
                         string.Join(", ", missingCitations) + ". Выделенный текст Word не изменен."
                     );
                 }
+
 '@
-    $old = Normalize-Newlines $old $ragNl
     $new = Normalize-Newlines $new $ragNl
-    if (-not $rag.Contains($old)) {
-        throw 'Could not locate Beautify RAG citation validation block.'
-    }
-    $rag = $rag.Replace($old, $new)
+    $rag = $rag.Substring(0, $start) + $new + $rag.Substring($end)
     Write-Utf8Text $ragPath $rag
 }
 
@@ -232,8 +227,14 @@ foreach ($marker in @(
 }
 
 $verifyRag = Read-Utf8Text $ragPath
-if (-not $verifyRag.Contains('lostDuringRepair')) {
-    throw 'Beautify RAG citation repair retry is missing.'
+foreach ($marker in @(
+    'lostDuringRepair',
+    'RepairMissingProtectedCitationsAsync(',
+    'ReplaceBeautifyResponse(responseStart, grounded);'
+)) {
+    if (-not $verifyRag.Contains($marker)) {
+        throw ('Missing Beautify RAG citation repair marker: ' + $marker)
+    }
 }
 
-Write-Host 'Beautify citation validation now normalizes equivalent PDF citations and repairs true omissions once.'
+Write-Host 'Beautify citation repair patch applied using stable range markers.'
