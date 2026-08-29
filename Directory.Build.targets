@@ -3,7 +3,7 @@
     <ProductName>НеZнайка</ProductName>
     <FriendlyName>НеZнайка</FriendlyName>
     <PublisherName>НеZнайка</PublisherName>
-    <ApplicationVersion>1.0.20.0</ApplicationVersion>
+    <ApplicationVersion>1.0.21.0</ApplicationVersion>
     <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
   </PropertyGroup>
 
@@ -17,6 +17,7 @@
     <Compile Include="$(MSBuildProjectDirectory)\Forge.LogicalLink.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditFix.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditPanel.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\RAGControl.Overview.cs" />
   </ItemGroup>
 
   <Target Name="ApplyNeZnaikaBranding"
@@ -45,6 +46,7 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-chat-scroll-fix.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-auto-topic.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\repair-rag-auto-topic-linq.ps1&quot;" />
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.20.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-overview-routing.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.21.ps1&quot;" />
   </Target>
 </Project>
