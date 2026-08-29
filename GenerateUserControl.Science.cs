@@ -190,6 +190,7 @@ namespace TextForge
                 string localCursorContext = GetLocalCursorContext(anchorRange);
                 string templateInstruction = GetSelectedTemplateInstruction();
                 string templateName = GetSelectedTemplateName();
+                PrepareAuditTargetForRequest(templateName, anchorRange, userQuery);
                 bool forceRag = _forceRagCheckBox != null && _forceRagCheckBox.Checked;
                 string retrievalQuery = BuildRagRetrievalQuery(userQuery);
 

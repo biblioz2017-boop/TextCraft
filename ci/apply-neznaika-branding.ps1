@@ -1,8 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-$version = '1.0.15.0'
-$displayVersion = '1.0.15'
+$version = '1.0.16.0'
+$displayVersion = '1.0.16'
 $productName = 'НеZнайка'
 
 function Read-Utf8Text([string]$Path) {
@@ -27,8 +27,8 @@ if (Test-Path $assemblyPath) {
     $assembly = [regex]::Replace($assembly, 'AssemblyTitle\("[^"]*"\)', 'AssemblyTitle("НеZнайка")')
     $assembly = [regex]::Replace($assembly, 'AssemblyProduct\("[^"]*"\)', 'AssemblyProduct("НеZнайка")')
     $assembly = [regex]::Replace($assembly, 'AssemblyTrademark\("[^"]*"\)', 'AssemblyTrademark("НеZнайка")')
-    $assembly = [regex]::Replace($assembly, 'AssemblyVersion\("[^"]+"\)', 'AssemblyVersion("1.0.15.0")')
-    $assembly = [regex]::Replace($assembly, 'AssemblyFileVersion\("[^"]+"\)', 'AssemblyFileVersion("1.0.15.0")')
+    $assembly = [regex]::Replace($assembly, 'AssemblyVersion\("[^"]+"\)', 'AssemblyVersion("1.0.16.0")')
+    $assembly = [regex]::Replace($assembly, 'AssemblyFileVersion\("[^"]+"\)', 'AssemblyFileVersion("1.0.16.0")')
     Write-Utf8Text $assemblyPath $assembly
 }
 
@@ -37,7 +37,7 @@ if (Test-Path $assemblyPath) {
 $projectPath = 'TextCraft.csproj'
 if (Test-Path $projectPath) {
     $project = Read-Utf8Text $projectPath
-    $project = [regex]::Replace($project, '<ApplicationVersion>[^<]*</ApplicationVersion>', '<ApplicationVersion>1.0.15.0</ApplicationVersion>')
+    $project = [regex]::Replace($project, '<ApplicationVersion>[^<]*</ApplicationVersion>', '<ApplicationVersion>1.0.16.0</ApplicationVersion>')
     $project = [regex]::Replace($project, '<ProductName>[^<]*</ProductName>', '<ProductName>НеZнайка</ProductName>')
     $project = [regex]::Replace($project, '<FriendlyName>[^<]*</FriendlyName>', '<FriendlyName>НеZнайка</FriendlyName>')
     $project = [regex]::Replace($project, '<OfficeApplicationDescription>[^<]*</OfficeApplicationDescription>', '<OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>')
@@ -137,7 +137,7 @@ if (Test-Path $setupPath) {
     $setup = $setup.Replace('"Title" = "8:OfficeAddinSetup"', '"Title" = "8:Установка НеZнайка"')
     $setup = $setup.Replace('"Title" = "8:neZnaika Setup"', '"Title" = "8:Установка НеZнайка"')
     $setup = $setup.Replace('"Subject" = "8:AI Tools"', '"Subject" = "8:НеZнайка для Microsoft Word"')
-    $setup = [regex]::Replace($setup, '"ProductVersion" = "8:[^"]+"', '"ProductVersion" = "8:1.0.15"')
+    $setup = [regex]::Replace($setup, '"ProductVersion" = "8:[^"]+"', '"ProductVersion" = "8:1.0.16"')
     $setup = $setup.Replace('"Name" = "8:TextCraft.WordAddIn"', '"Name" = "8:НеZнайка.WordAddIn"')
     $setup = $setup.Replace('"Name" = "8:neZnaika.WordAddIn"', '"Name" = "8:НеZнайка.WordAddIn"')
     Write-Utf8Text $setupPath $setup
@@ -150,7 +150,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Host ''
-Write-Host 'НеZнайка 1.0.15 — установка' -ForegroundColor Cyan
+Write-Host 'НеZнайка 1.0.16 — установка' -ForegroundColor Cyan
 Write-Host '================================'
 Write-Host 'Закройте Microsoft Word. Установщик сам разблокирует файлы, добавит сертификат и запустит установку.'
 Write-Host ''
@@ -185,7 +185,7 @@ if ($msi) {
 }
 
 Write-Host ''
-Write-Host 'НеZнайка 1.0.15 установлена.' -ForegroundColor Green
+Write-Host 'НеZнайка 1.0.16 установлена.' -ForegroundColor Green
 Write-Host 'Откройте Word и вкладку «НеZнайка».'
 Read-Host 'Нажмите Enter для выхода'
 '@
@@ -195,7 +195,7 @@ $cmd = @'
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-title NeZnaika 1.0.15 Installer
+title NeZnaika 1.0.16 Installer
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
@@ -207,7 +207,7 @@ Write-Utf8Text 'artifact/00_INSTALL-NeZnaika.cmd' $cmd
 Write-Utf8Text 'artifact/INSTALL-NeZnaika.cmd' $cmd
 
 $readme = @'
-НеZнайка 1.0.15 для Microsoft Word
+НеZнайка 1.0.16 для Microsoft Word
 =================================
 
 ВАЖНО: для установки запускайте файл:
@@ -221,9 +221,9 @@ $readme = @'
 
 Внутренние имена TextCraft.dll и TextCraft.vsto сохранены специально: их смена
 может сломать VSTO-манифест. Пользовательское имя продукта — НеZнайка.
-Версия — 1.0.15.
+Версия — 1.0.16.
 '@
 Write-Utf8Text 'artifact/00_README-FIRST-NeZnaika.txt' $readme
 Write-Utf8Text 'artifact/README-FIRST-NeZnaika.txt' $readme
 
-Write-Host 'НеZнайка branding, version 1.0.15, owl resource and installer bundle prepared.'
+Write-Host 'НеZнайка branding, version 1.0.16, owl resource and installer bundle prepared.'

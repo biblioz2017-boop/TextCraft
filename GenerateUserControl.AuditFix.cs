@@ -146,6 +146,39 @@ namespace TextForge
             SetAuditFixButtons(false);
         }
 
+        private void PrepareAuditTargetForRequest(
+            string templateName,
+            Word.Range requestRange,
+            string auditedText
+        )
+        {
+            if (!string.Equals(templateName, "Научный аудит", StringComparison.Ordinal))
+                return;
+
+            if (requestRange != null && requestRange.End > requestRange.Start)
+            {
+                string selectionText = (requestRange.Text ?? string.Empty).Trim();
+                string effectiveText = (auditedText ?? string.Empty).Trim();
+
+                // A manually entered audit request may not literally equal the selection.
+                // In that case bind the report to the whole selected range instead of
+                // silently keeping a stale target or an arbitrary prefix.
+                if (effectiveText.Length == 0 ||
+                    selectionText.IndexOf(effectiveText, StringComparison.Ordinal) < 0)
+                {
+                    effectiveText = selectionText;
+                }
+
+                RememberAuditTarget(requestRange.Duplicate, effectiveText);
+            }
+            else
+            {
+                ResetAuditFixState(false);
+            }
+
+            PrepareAuditReviewForNewRun();
+        }
+
         private void CaptureAuditResultIfNeeded(string templateName, string response)
         {
             if (!string.Equals(templateName, "Научный аудит", StringComparison.Ordinal))
@@ -537,7 +570,7 @@ namespace TextForge
             if (_auditTargetRange == null || string.IsNullOrWhiteSpace(_lastAuditReport))
             {
                 MessageBox.Show(
-                    "Сначала выполните «Аудит главы» и дождитесь готового отчета.",
+                    "Сначала запустите «Научный аудит» для выделенного текста и дождитесь готового отчета.",
                     "НеZнайка",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information

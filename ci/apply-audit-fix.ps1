@@ -39,6 +39,17 @@ if (-not $science.Contains('InitializeAuditReviewPanel();')) {
     )
 }
 
+if (-not $science.Contains('PrepareAuditTargetForRequest(templateName, anchorRange, userQuery);')) {
+    $anchor = '                string templateName = GetSelectedTemplateName();'
+    if (-not $science.Contains($anchor)) {
+        throw 'Could not locate RAG-aware template selection.'
+    }
+    $science = $science.Replace(
+        $anchor,
+        $anchor + "`r`n                PrepareAuditTargetForRequest(templateName, anchorRange, userQuery);"
+    )
+}
+
 if (-not $science.Contains('CaptureAuditResultIfNeeded(templateName, response);')) {
     $anchor = "                _lastResponseMarkdown = response;`r`n                _lastTemplateName = templateName;"
     if (-not $science.Contains($anchor)) {
