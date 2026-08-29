@@ -684,7 +684,8 @@ namespace TextForge
                                 Reason = item.Issue.Reason
                             }
                         },
-                        out localSkipped
+                        out localSkipped,
+                        out List<AuditEdit> localAppliedEdits
                     );
 
                     if (count == 1)
