@@ -688,7 +688,7 @@ namespace TextForge
                         out List<AuditEdit> localAppliedEdits
                     );
 
-                    if (count == 1)
+                    if (count == 1 && localAppliedEdits.Count == 1)
                     {
                         item.Issue.Applied = true;
                         applied++;
