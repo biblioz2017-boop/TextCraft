@@ -64,16 +64,16 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеZнайка 1.0.26
+      - name: Build НеZнайка 1.0.27
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеZнайка 1.0.26
+      - name: Verify НеZнайка 1.0.27
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
-          if (-not $targets.Contains('<ApplicationVersion>1.0.26.0</ApplicationVersion>')) {
-            throw 'Build targets do not declare NeZnaika 1.0.26.'
+          if (-not $targets.Contains('<ApplicationVersion>1.0.27.0</ApplicationVersion>')) {
+            throw 'Build targets do not declare NeZnaika 1.0.27.'
           }
           foreach ($marker in @(
             'apply-audit-headless-review.ps1',
@@ -84,8 +84,10 @@ jobs:
             'repair-rag-auto-topic-linq.ps1',
             'apply-rag-overview-routing.ps1',
             'apply-beautify-ui.ps1',
-            'set-neznaika-version-1.0.26.ps1',
+            'switch-beautify-to-selection.ps1',
+            'set-neznaika-version-1.0.27.ps1',
             'GenerateUserControl.Beautify.cs',
+            'GenerateUserControl.BeautifySelection.cs',
             'RAGControl.Overview.cs'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build patch: $marker" }
@@ -93,6 +95,7 @@ jobs:
 
           $generate = Get-Content 'GenerateUserControl.cs' -Raw
           $beautify = Get-Content 'GenerateUserControl.Beautify.cs' -Raw
+          $selectionBeautify = Get-Content 'GenerateUserControl.BeautifySelection.cs' -Raw
           $science = Get-Content 'GenerateUserControl.Science.cs' -Raw
           $rag = Get-Content 'RAGControl.cs' -Raw
           $ragScience = Get-Content 'RAGControl.Science.cs' -Raw
@@ -120,9 +123,23 @@ jobs:
             'Аннотация',
             'Тезисы доклада',
             'FindMissingProtectedCitations',
-            'CompleteChatStreamingAsync'
+            'BeautifySelectedWordTextAsync(preset)'
           )) {
             if (-not $beautify.Contains($marker)) { throw "Missing Beautify marker: $marker" }
+          }
+          foreach ($marker in @(
+            'BeautifySelectedWordTextAsync',
+            'AnalyzeSelectedBeautifyTextAsync',
+            'анализ выделения 1 из 2',
+            'оформление 2 из 2',
+            'Globals.ThisAddIn.Application.Selection',
+            'FindMissingProtectedCitations',
+            'НеZнайка не будет молча обрезать конец текста'
+          )) {
+            if (-not $selectionBeautify.Contains($marker)) { throw "Missing selection Beautify marker: $marker" }
+          }
+          if ($beautify.Contains('await BeautifyLastResponseAsync(preset);')) {
+            throw 'Beautify still uses the last chat response instead of Word selection.'
           }
 
           foreach ($marker in @(
@@ -165,28 +182,28 @@ jobs:
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.26.0') {
+          if ($assemblyVersion -ne '1.0.27.0') {
             throw "Unexpected TextCraft.dll assembly version: $assemblyVersion"
           }
-          if ($fileVersion -ne '1.0.26.0') {
+          if ($fileVersion -ne '1.0.27.0') {
             throw "Unexpected TextCraft.dll file version: $fileVersion"
           }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $applicationIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.26.0') {
-            throw 'Application manifest is not version 1.0.26.0.'
+          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.27.0') {
+            throw 'Application manifest is not version 1.0.27.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.26.0') {
-            throw 'Deployment manifest is not version 1.0.26.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.27.0') {
+            throw 'Deployment manifest is not version 1.0.27.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.26"')) {
-            throw 'MSI project version is not 1.0.26.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.27"')) {
+            throw 'MSI project version is not 1.0.27.'
           }
 
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
@@ -206,13 +223,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.26-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.26-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.27-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.27-Setup.msi' -Force
           }
 
-      - name: Upload НеZнайка 1.0.26
+      - name: Upload НеZнайка 1.0.27
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.26
+          name: NeZnaika-1.0.27
           path: artifact
           if-no-files-found: error
