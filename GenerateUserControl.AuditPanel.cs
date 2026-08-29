@@ -68,7 +68,9 @@ namespace TextForge
                 Dock = DockStyle.Fill,
                 Height = 24,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold)
+                Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold),
+                ForeColor = SystemColors.ControlText,
+                BackColor = SystemColors.Control
             };
 
             _auditIssueList = new CheckedListBox
@@ -201,7 +203,9 @@ namespace TextForge
                 Dock = DockStyle.Fill,
                 Height = 19,
                 TextAlign = ContentAlignment.BottomLeft,
-                Margin = new Padding(0)
+                Margin = new Padding(0),
+                ForeColor = SystemColors.ControlText,
+                BackColor = SystemColors.Control
             };
         }
 
@@ -226,6 +230,63 @@ namespace TextForge
             return _auditTargetRange != null && !string.IsNullOrWhiteSpace(_lastAuditReport);
         }
 
+        private List<AuditEdit> GetPendingSafeAuditReviewEdits(int maxEdits)
+        {
+            var result = new List<AuditEdit>();
+            if (maxEdits <= 0)
+                return result;
+
+            foreach (AuditReviewIssue issue in _auditReviewIssues)
+            {
+                if (issue == null || issue.Applied || !issue.AutoApplicable)
+                    continue;
+
+                result.Add(new AuditEdit
+                {
+                    FindText = issue.FindText ?? string.Empty,
+                    Replacement = issue.Replacement ?? string.Empty,
+                    Reason = issue.Reason ?? string.Empty
+                });
+
+                if (result.Count >= maxEdits)
+                    break;
+            }
+
+            return result;
+        }
+
+        private void MarkAuditReviewEditsApplied(IEnumerable<AuditEdit> edits)
+        {
+            if (edits == null)
+                return;
+
+            var appliedKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (AuditEdit edit in edits)
+            {
+                if (edit != null)
+                    appliedKeys.Add((edit.FindText ?? string.Empty) + "\n" + (edit.Replacement ?? string.Empty));
+            }
+
+            foreach (AuditReviewIssue issue in _auditReviewIssues)
+            {
+                if (issue == null)
+                    continue;
+
+                string key = (issue.FindText ?? string.Empty) + "\n" + (issue.Replacement ?? string.Empty);
+                if (appliedKeys.Contains(key))
+                    issue.Applied = true;
+            }
+
+            RenderAuditReviewIssues(true);
+            int safeCount = _auditReviewIssues.Count(i => i.AutoApplicable && !i.Applied);
+            if (_auditReviewHeader != null)
+            {
+                _auditReviewHeader.Text =
+                    "Замечания аудита: " + _auditReviewIssues.Count +
+                    " (безопасных осталось: " + safeCount + ")";
+            }
+        }
+
         private async Task BuildAuditReviewPanelAsync()
         {
             if (_auditReviewBusy || !HasPendingAuditReview())
@@ -243,9 +304,15 @@ namespace TextForge
             try
             {
                 _auditReviewBusy = true;
+                SetAuditFixButtons(false);
                 ShowAuditReviewPanel();
+                ClearAuditPreview();
                 _auditReviewHeader.Text = "Замечания аудита — разбираю отчет…";
+                _auditReasonTextBox.Text = "Подождите: НеZнайка преобразует отчет в отдельные замечания…";
+                if (_responseLabel != null)
+                    _responseLabel.Text = "Аудит — структурирую замечания…";
                 SetAuditReviewControlsEnabled(false);
+                _auditReviewPanel.Refresh();
                 await Task.Yield();
 
                 List<AuditReviewIssue> issues = await GenerateAuditReviewIssuesAsync(
@@ -282,6 +349,7 @@ namespace TextForge
             {
                 _auditReviewBusy = false;
                 SetAuditReviewControlsEnabled(true);
+                SetAuditFixButtons(HasPendingAuditReview());
             }
         }
 
@@ -319,6 +387,8 @@ namespace TextForge
                 "</issue>\n" +
                 "Если замечание нельзя привязать к конкретному фрагменту текста, не включай его.";
 
+            var cancellationToken = GetAuditOperationToken();
+
             ChatClient client = new ChatClient(
                 ThisAddIn.Model,
                 new ApiKeyCredential(ThisAddIn.ApiKey),
@@ -334,12 +404,14 @@ namespace TextForge
             var answer = client.CompleteChatStreamingAsync(
                 messages,
                 new ChatCompletionOptions { Temperature = 0.03f },
-                ThisAddIn.CancellationTokenSource.Token
+                cancellationToken
             );
+            if (answer == null)
+                throw new InvalidOperationException("Модель не вернула поток структурированных замечаний.");
 
             StringBuilder response = new StringBuilder();
             await foreach (
-                var update in answer.WithCancellation(ThisAddIn.CancellationTokenSource.Token)
+                var update in answer.WithCancellation(cancellationToken)
             )
             {
                 foreach (var part in update.ContentUpdate)

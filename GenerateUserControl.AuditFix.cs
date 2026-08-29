@@ -3,6 +3,7 @@ using System.ClientModel;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using OpenAI.Chat;
@@ -218,10 +219,33 @@ namespace TextForge
             ResetAuditFixState(true);
         }
 
+        private static CancellationToken GetAuditOperationToken()
+        {
+            CancellationTokenSource source = ThisAddIn.CancellationTokenSource;
+            if (source == null || source.IsCancellationRequested)
+            {
+                source = new CancellationTokenSource();
+                ThisAddIn.CancellationTokenSource = source;
+            }
+
+            return source.Token;
+        }
+
         private async Task RunAuditFixAsync(bool singleEdit)
         {
             if (_auditFixBusy)
                 return;
+
+            if (_auditReviewBusy)
+            {
+                MessageBox.Show(
+                    "Дождитесь, пока НеZнайка закончит разбирать отчет на отдельные замечания.",
+                    "НеZнайка",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
+                return;
+            }
 
             Word.Document document;
             Word.Range targetRange;
@@ -252,22 +276,35 @@ namespace TextForge
                 return;
             }
 
+            string stage = "подготовка";
             try
             {
                 _auditFixBusy = true;
                 SetAuditControlsBusy(true);
-                if (_responseLabel != null)
-                    _responseLabel.Text = singleEdit
-                        ? "Аудит — готовлю следующую безопасную правку…"
-                        : "Аудит — готовлю безопасные правки…";
 
-                List<AuditEdit> edits = await GenerateAuditEditsAsync(
-                    currentText,
-                    _lastAuditReport,
-                    singleEdit ? 1 : 16
-                );
+                int maxEdits = singleEdit ? 1 : 16;
+                List<AuditEdit> edits = GetPendingSafeAuditReviewEdits(maxEdits);
+                bool usingPreparedIssues = edits.Count > 0;
 
-                if (edits.Count == 0)
+                if (usingPreparedIssues)
+                {
+                    if (_responseLabel != null)
+                        _responseLabel.Text = singleEdit
+                            ? "Аудит — применяю следующую проверенную правку…"
+                            : "Аудит — применяю отмеченные безопасные правки…";
+                }
+                else
+                {
+                    stage = "запрос безопасных правок у модели";
+                    if (_responseLabel != null)
+                        _responseLabel.Text = singleEdit
+                            ? "Аудит — готовлю следующую безопасную правку…"
+                            : "Аудит — готовлю безопасные правки…";
+
+                    edits = await GenerateAuditEditsAsync(currentText, _lastAuditReport, maxEdits);
+                }
+
+                if (edits == null || edits.Count == 0)
                 {
                     AppendAuditFixNotice(
                         singleEdit
@@ -277,8 +314,13 @@ namespace TextForge
                     return;
                 }
 
+                stage = "проверка и применение правок в Word";
                 int skipped;
-                int applied = ApplyAuditEdits(document, targetRange, edits, out skipped);
+                List<AuditEdit> appliedEdits;
+                int applied = ApplyAuditEdits(document, targetRange, edits, out skipped, out appliedEdits);
+
+                if (usingPreparedIssues && appliedEdits.Count > 0)
+                    MarkAuditReviewEditsApplied(appliedEdits);
 
                 if (applied == 0)
                 {
@@ -300,7 +342,9 @@ namespace TextForge
             }
             catch (Exception ex)
             {
-                CommonUtils.DisplayError(ex);
+                string context = "Исправление аудита остановлено на этапе «" + stage + "»";
+                AppendAuditFixNotice(context + ". Проверьте уже внесенные изменения в режиме рецензирования Word.");
+                CommonUtils.DisplayError(context, ex);
             }
             finally
             {
@@ -350,6 +394,8 @@ namespace TextForge
                 "<edit>\n<find>дословный фрагмент исходного текста</find>\n<replace>исправленный фрагмент</replace>\n<reason>краткая причина</reason>\n</edit>\n" +
                 "Если замечание требует источника, фактического решения или изменения числа/ссылки, не превращай его в edit.";
 
+            CancellationToken cancellationToken = GetAuditOperationToken();
+
             ChatClient client = new ChatClient(
                 ThisAddIn.Model,
                 new ApiKeyCredential(ThisAddIn.ApiKey),
@@ -365,12 +411,14 @@ namespace TextForge
             var answer = client.CompleteChatStreamingAsync(
                 messages,
                 new ChatCompletionOptions { Temperature = 0.05f },
-                ThisAddIn.CancellationTokenSource.Token
+                cancellationToken
             );
+            if (answer == null)
+                throw new InvalidOperationException("Модель не вернула поток безопасных правок.");
 
             StringBuilder response = new StringBuilder();
             await foreach (
-                var update in answer.WithCancellation(ThisAddIn.CancellationTokenSource.Token)
+                var update in answer.WithCancellation(cancellationToken)
             )
             {
                 foreach (var content in update.ContentUpdate)
@@ -425,10 +473,19 @@ namespace TextForge
             Word.Document document,
             Word.Range targetRange,
             List<AuditEdit> edits,
-            out int skipped
+            out int skipped,
+            out List<AuditEdit> appliedEdits
         )
         {
             skipped = 0;
+            appliedEdits = new List<AuditEdit>();
+
+            if (document == null || targetRange == null || edits == null)
+            {
+                skipped = edits == null ? 0 : edits.Count;
+                return 0;
+            }
+
             string currentText = targetRange.Text ?? string.Empty;
             var resolved = new List<ResolvedAuditEdit>();
 
@@ -447,11 +504,7 @@ namespace TextForge
                     continue;
                 }
 
-                int second = currentText.IndexOf(
-                    edit.FindText,
-                    first + edit.FindText.Length,
-                    StringComparison.Ordinal
-                );
+                int second = currentText.IndexOf(edit.FindText, first + edit.FindText.Length, StringComparison.Ordinal);
                 if (second >= 0)
                 {
                     skipped++;
@@ -462,6 +515,9 @@ namespace TextForge
                 bool overlaps = false;
                 foreach (ResolvedAuditEdit existing in resolved)
                 {
+                    if (existing == null || existing.Edit == null)
+                        continue;
+
                     int existingEnd = existing.RelativeStart + existing.Edit.FindText.Length;
                     if (first < existingEnd && existing.RelativeStart < editEnd)
                     {
@@ -476,18 +532,13 @@ namespace TextForge
                     continue;
                 }
 
-                resolved.Add(new ResolvedAuditEdit
-                {
-                    Edit = edit,
-                    RelativeStart = first
-                });
+                resolved.Add(new ResolvedAuditEdit { Edit = edit, RelativeStart = first });
             }
 
             if (resolved.Count == 0)
                 return 0;
 
             resolved.Sort((a, b) => b.RelativeStart.CompareTo(a.RelativeStart));
-
             int originalStart = targetRange.Start;
             int originalEnd = targetRange.End;
             int totalDelta = 0;
@@ -500,11 +551,25 @@ namespace TextForge
 
                 foreach (ResolvedAuditEdit item in resolved)
                 {
+                    if (item == null || item.Edit == null)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    string replacement = item.Edit.Replacement ?? string.Empty;
                     int start = originalStart + item.RelativeStart;
                     int end = start + item.Edit.FindText.Length;
                     Word.Range editRange = document.Range(start, end);
-                    editRange.Text = item.Edit.Replacement;
-                    totalDelta += item.Edit.Replacement.Length - item.Edit.FindText.Length;
+                    if (editRange == null)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    editRange.Text = replacement;
+                    totalDelta += replacement.Length - item.Edit.FindText.Length;
+                    appliedEdits.Add(item.Edit);
 
                     string appliedLabel = item.Edit.Reason;
                     if (string.IsNullOrWhiteSpace(appliedLabel))
@@ -527,7 +592,7 @@ namespace TextForge
 
             int newEnd = Math.Max(originalStart, originalEnd + totalDelta);
             _auditTargetRange = document.Range(originalStart, newEnd);
-            return resolved.Count;
+            return appliedEdits.Count;
         }
 
         private static bool IsSafeAuditEdit(AuditEdit edit)
@@ -535,7 +600,8 @@ namespace TextForge
             if (edit == null || string.IsNullOrWhiteSpace(edit.FindText))
                 return false;
 
-            if (edit.FindText.Length > 1200 || edit.Replacement.Length > edit.FindText.Length * 2 + 220)
+            string replacement = edit.Replacement ?? string.Empty;
+            if (edit.FindText.Length > 1200 || replacement.Length > edit.FindText.Length * 2 + 220)
                 return false;
 
             // A safe editorial change must preserve every number, bracketed citation,
@@ -543,7 +609,7 @@ namespace TextForge
             // even if the language model ignores the prompt.
             return string.Equals(
                 BuildProtectedSignature(edit.FindText),
-                BuildProtectedSignature(edit.Replacement),
+                BuildProtectedSignature(replacement),
                 StringComparison.Ordinal
             );
         }
