@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+
+# Keep this script strictly ASCII for Windows PowerShell 5.1.
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 function Read-Utf8Text([string]$Path) { return [System.IO.File]::ReadAllText((Resolve-Path $Path).Path, [System.Text.Encoding]::UTF8) }
 function Write-Utf8Text([string]$Path, [string]$Text) { [System.IO.File]::WriteAllText((Resolve-Path $Path).Path, $Text, $utf8NoBom) }
@@ -12,7 +14,7 @@ $new = @'
                     if (genericAttachedSourceRequest)
                     {
                         if (_responseLabel != null)
-                            _responseLabel.Text = "Диалог / ответ — собираю обзор отмеченных PDF…";
+                            _responseLabel.Text = "\u0414\u0438\u0430\u043b\u043e\u0433 / \u043e\u0442\u0432\u0435\u0442 \u2014 \u0441\u043e\u0431\u0438\u0440\u0430\u044e \u043e\u0431\u0437\u043e\u0440 \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043d\u044b\u0445 PDF\u2026";
                         forcedEvidence = await Task.Run(() => rag.GetCheckedPdfOverviewEvidence(10));
                     }
                     else
@@ -25,16 +27,6 @@ if ($text.Contains($old)) {
     $text = $text.Replace($old, $new.TrimEnd("`r", "`n"))
 } elseif (-not $text.Contains('GetCheckedPdfOverviewEvidence(10)')) {
     throw 'Could not locate strict-RAG evidence retrieval call for overview routing.'
-}
-
-$oldNoEvidence = '                            "Строгий RAG остановил генерацию: в отмеченных PDF не найдено подходящих фрагментов по теме запроса. " +'
-$newNoEvidence = @'
-                            (genericAttachedSourceRequest
-                                ? "Строгий RAG остановил генерацию: не удалось извлечь обзорные фрагменты из отмеченных PDF. "
-                                : "Строгий RAG остановил генерацию: в отмеченных PDF не найдено подходящих фрагментов по теме запроса. ") +
-'@
-if ($text.Contains($oldNoEvidence)) {
-    $text = $text.Replace($oldNoEvidence, $newNoEvidence.TrimEnd("`r", "`n"))
 }
 
 Write-Utf8Text $path $text
