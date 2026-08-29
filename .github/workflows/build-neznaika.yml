@@ -64,16 +64,16 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеZнайка 1.0.21
+      - name: Build НеZнайка 1.0.22
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеZнайка 1.0.21
+      - name: Verify НеZнайка 1.0.22
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
-          if (-not $targets.Contains('<ApplicationVersion>1.0.21.0</ApplicationVersion>')) {
-            throw 'Build targets do not declare NeZnaika 1.0.21.'
+          if (-not $targets.Contains('<ApplicationVersion>1.0.22.0</ApplicationVersion>')) {
+            throw 'Build targets do not declare NeZnaika 1.0.22.'
           }
           foreach ($marker in @(
             'apply-audit-headless-review.ps1',
@@ -81,7 +81,7 @@ jobs:
             'apply-rag-auto-topic.ps1',
             'repair-rag-auto-topic-linq.ps1',
             'apply-rag-overview-routing.ps1',
-            'set-neznaika-version-1.0.21.ps1',
+            'set-neznaika-version-1.0.22.ps1',
             'RAGControl.Overview.cs'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build patch: $marker" }
@@ -124,28 +124,28 @@ jobs:
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.21.0') {
+          if ($assemblyVersion -ne '1.0.22.0') {
             throw "Unexpected TextCraft.dll assembly version: $assemblyVersion"
           }
-          if ($fileVersion -ne '1.0.21.0') {
+          if ($fileVersion -ne '1.0.22.0') {
             throw "Unexpected TextCraft.dll file version: $fileVersion"
           }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $applicationIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.21.0') {
-            throw 'Application manifest is not version 1.0.21.0.'
+          if ($null -eq $applicationIdentity -or $applicationIdentity.version -ne '1.0.22.0') {
+            throw 'Application manifest is not version 1.0.22.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.21.0') {
-            throw 'Deployment manifest is not version 1.0.21.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.22.0') {
+            throw 'Deployment manifest is not version 1.0.22.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.21"')) {
-            throw 'MSI project version is not 1.0.21.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.22"')) {
+            throw 'MSI project version is not 1.0.22.'
           }
 
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd')) {
@@ -165,13 +165,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.21-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.21-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.22-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.22-Setup.msi' -Force
           }
 
-      - name: Upload НеZнайка 1.0.21
+      - name: Upload НеZнайка 1.0.22
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.21
+          name: NeZnaika-1.0.22
           path: artifact
           if-no-files-found: error
