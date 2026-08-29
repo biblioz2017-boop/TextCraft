@@ -18,11 +18,6 @@ function Get-NewLine([string]$Text) {
 
 Write-Host 'Applying automatic RAG topic discovery...'
 
-# -----------------------------------------------------------------------------
-# RAGControl: build a broad semantic seed directly from the checked PDFs.
-# This does not use model knowledge. It reads a small sample from the first pages
-# of the files that the user actually checked in the Literature pane.
-# -----------------------------------------------------------------------------
 $ragPath = 'RAGControl.cs'
 $rag = Read-Utf8Text $ragPath
 $rnl = Get-NewLine $rag
@@ -89,7 +84,7 @@ if (-not $rag.Contains('public async Task<string> BuildCheckedPdfTopicSeedAsync(
                         {
                             Page page = document.GetPage(pageNumber);
                             int wordCount = 0;
-                            foreach (Word word in page.GetWords())
+                            foreach (var word in page.GetWords())
                             {
                                 if (word == null || string.IsNullOrWhiteSpace(word.Text))
                                     continue;
@@ -109,7 +104,6 @@ if (-not $rag.Contains('public async Task<string> BuildCheckedPdfTopicSeedAsync(
                 }
                 catch
                 {
-                    // One unreadable PDF must not block topic discovery from the others.
                 }
             }
 
@@ -125,11 +119,6 @@ if (-not $rag.Contains('public async Task<string> BuildCheckedPdfTopicSeedAsync(
 
 Write-Utf8Text $ragPath $rag
 
-# -----------------------------------------------------------------------------
-# Science pane: when the prompt is only "make a report from attached files",
-# use the checked-PDF seed as the retrieval query. Specific topical prompts keep
-# their current precise semantic retrieval behavior.
-# -----------------------------------------------------------------------------
 $sciencePath = 'GenerateUserControl.Science.cs'
 $science = Read-Utf8Text $sciencePath
 $snl = Get-NewLine $science
