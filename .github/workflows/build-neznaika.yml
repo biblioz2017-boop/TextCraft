@@ -62,87 +62,71 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеЗнайка 1.0.35
+      - name: Build НеЗнайка 1.0.36
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеЗнайка 1.0.35
+      - name: Verify НеЗнайка 1.0.36
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
           foreach ($marker in @(
-            '<ApplicationVersion>1.0.35.0</ApplicationVersion>',
+            '<ApplicationVersion>1.0.36.0</ApplicationVersion>',
             'Forge.Synonyms.cs',
+            'Forge.SelectionInsights.cs',
             'apply-synonyms-ribbon.ps1',
+            'apply-selection-insights-ribbon.ps1',
             'GenerateUserControl.BeautifyRag.cs',
             'apply-beautify-rag-ui.ps1',
             'apply-beautify-citation-policy-v2.ps1',
-            'set-neznaika-version-1.0.35.ps1'
+            'set-neznaika-version-1.0.36.ps1'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build marker: $marker" }
           }
 
-          $citationPatch = Get-Content 'ci\apply-beautify-citation-policy-v2.ps1' -Raw
+          $insights = Get-Content 'Forge.SelectionInsights.cs' -Raw
           foreach ($marker in @(
-            'NormalizeProtectedCitationKeyV2',
-            'BuildCitationRepairHintsV2',
-            'citationValidationWarningV2',
-            'ASCII-only build patch'
+            'ExplainSelectionButton_Click',
+            'ConclusionsSelectionButton_Click',
+            'InsertSelectionInsightAsync',
+            'Работай только с предоставленным выделенным фрагментом',
+            'Не используй внешние знания как источник новых утверждений'
           )) {
-            if (-not $citationPatch.Contains($marker)) { throw "Missing citation policy v2 marker: $marker" }
-          }
-
-          $synonymSource = Get-Content 'Forge.Synonyms.cs' -Raw
-          foreach ($marker in @(
-            'SynonymsButton_Click',
-            'GetContextualSynonymsAsync',
-            'SynonymPickerForm',
-            'ReplaceSelectionWithSynonym',
-            'TrackRevisions',
-            'НЕТ БЕЗОПАСНОЙ ЗАМЕНЫ'
-          )) {
-            if (-not $synonymSource.Contains($marker)) { throw "Missing synonym feature marker: $marker" }
-          }
-
-          $synonymPatch = Get-Content 'ci\apply-synonyms-ribbon.ps1' -Raw
-          foreach ($marker in @(
-            'SynonymsButton',
-            'SynonymsButton_Click',
-            'Contextual synonym ribbon button is wired.'
-          )) {
-            if (-not $synonymPatch.Contains($marker)) { throw "Missing synonym ribbon marker: $marker" }
+            if (-not $insights.Contains($marker)) { throw "Missing selection insight marker: $marker" }
           }
 
           $designer = Get-Content 'Forge.Designer.cs' -Raw
           foreach ($marker in @(
             'this.SynonymsButton = this.Factory.CreateRibbonButton();',
-            'this.ToolsGroup.Items.Add(this.SynonymsButton);',
-            'this.SynonymsButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.SynonymsButton_Click);'
+            'this.ExplainSelectionButton = this.Factory.CreateRibbonButton();',
+            'this.ConclusionsSelectionButton = this.Factory.CreateRibbonButton();',
+            'this.ExplainSelectionButton_Click',
+            'this.ConclusionsSelectionButton_Click'
           )) {
-            if (-not $designer.Contains($marker)) { throw "Synonym ribbon was not applied: $marker" }
+            if (-not $designer.Contains($marker)) { throw "Ribbon feature was not applied: $marker" }
           }
 
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.35.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
-          if ($fileVersion -ne '1.0.35.0') { throw "Unexpected DLL file version: $fileVersion" }
+          if ($assemblyVersion -ne '1.0.36.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
+          if ($fileVersion -ne '1.0.36.0') { throw "Unexpected DLL file version: $fileVersion" }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $appIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.35.0') {
-            throw 'Application manifest is not version 1.0.35.0.'
+          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.36.0') {
+            throw 'Application manifest is not version 1.0.36.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.35.0') {
-            throw 'Deployment manifest is not version 1.0.35.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.36.0') {
+            throw 'Deployment manifest is not version 1.0.36.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.35"')) {
-            throw 'MSI project version is not 1.0.35.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.36"')) {
+            throw 'MSI project version is not 1.0.36.'
           }
 
       - name: Finalize and validate installer
@@ -174,13 +158,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.35-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.35-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.36-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.36-Setup.msi' -Force
           }
 
-      - name: Upload НеЗнайка 1.0.35
+      - name: Upload НеЗнайка 1.0.36
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.35
+          name: NeZnaika-1.0.36
           path: artifact
           if-no-files-found: error
