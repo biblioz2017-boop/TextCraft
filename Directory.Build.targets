@@ -3,7 +3,7 @@
     <ProductName>НеZнайка</ProductName>
     <FriendlyName>НеZнайка</FriendlyName>
     <PublisherName>НеZнайка</PublisherName>
-    <ApplicationVersion>1.0.34.0</ApplicationVersion>
+    <ApplicationVersion>1.0.35.0</ApplicationVersion>
     <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
   </PropertyGroup>
 
@@ -15,6 +15,7 @@
     </EmbeddedResource>
     <Compile Include="$(MSBuildProjectDirectory)\Forge.ModelControl.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\Forge.LogicalLink.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\Forge.Synonyms.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditFix.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditPanel.cs" />
     <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.Beautify.cs" />
@@ -52,6 +53,7 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\switch-beautify-to-selection.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-rag-ui.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-citation-policy-v2.ps1&quot;" />
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.34.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-synonyms-ribbon.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.35.ps1&quot;" />
   </Target>
 </Project>
