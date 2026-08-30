@@ -62,26 +62,39 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеЗнайка 1.0.36
+      - name: Build НеЗнайка 1.0.37
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеЗнайка 1.0.36
+      - name: Verify НеЗнайка 1.0.37
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
           foreach ($marker in @(
-            '<ApplicationVersion>1.0.36.0</ApplicationVersion>',
+            '<ApplicationVersion>1.0.37.0</ApplicationVersion>',
             'Forge.Synonyms.cs',
             'Forge.SelectionInsights.cs',
-            'apply-synonyms-ribbon.ps1',
-            'apply-selection-insights-ribbon.ps1',
             'GenerateUserControl.BeautifyRag.cs',
             'apply-beautify-rag-ui.ps1',
             'apply-beautify-citation-policy-v2.ps1',
-            'set-neznaika-version-1.0.36.ps1'
+            'set-neznaika-version-1.0.37.ps1'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build marker: $marker" }
+          }
+          foreach ($forbidden in @('apply-synonyms-ribbon.ps1', 'apply-selection-insights-ribbon.ps1')) {
+            if ($targets.Contains($forbidden)) { throw "Fragile build-time Ribbon patch is still enabled: $forbidden" }
+          }
+
+          $synonyms = Get-Content 'Forge.Synonyms.cs' -Raw
+          foreach ($marker in @(
+            'SynonymsButton_Click',
+            'GetContextualSynonymsAsync',
+            'SynonymPickerForm',
+            'ReplaceSelectionWithSynonym',
+            'TrackRevisions',
+            'НЕТ БЕЗОПАСНОЙ ЗАМЕНЫ'
+          )) {
+            if (-not $synonyms.Contains($marker)) { throw "Missing synonym feature marker: $marker" }
           }
 
           $insights = Get-Content 'Forge.SelectionInsights.cs' -Raw
@@ -98,35 +111,39 @@ jobs:
           $designer = Get-Content 'Forge.Designer.cs' -Raw
           foreach ($marker in @(
             'this.SynonymsButton = this.Factory.CreateRibbonButton();',
+            'this.ToolsGroup.Items.Add(this.SynonymsButton);',
+            'this.SynonymsButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.SynonymsButton_Click);',
             'this.ExplainSelectionButton = this.Factory.CreateRibbonButton();',
+            'this.ToolsGroup.Items.Add(this.ExplainSelectionButton);',
+            'this.ExplainSelectionButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ExplainSelectionButton_Click);',
             'this.ConclusionsSelectionButton = this.Factory.CreateRibbonButton();',
-            'this.ExplainSelectionButton_Click',
-            'this.ConclusionsSelectionButton_Click'
+            'this.ToolsGroup.Items.Add(this.ConclusionsSelectionButton);',
+            'this.ConclusionsSelectionButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ConclusionsSelectionButton_Click);'
           )) {
-            if (-not $designer.Contains($marker)) { throw "Ribbon feature was not applied: $marker" }
+            if (-not $designer.Contains($marker)) { throw "Direct Ribbon feature is missing: $marker" }
           }
 
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.36.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
-          if ($fileVersion -ne '1.0.36.0') { throw "Unexpected DLL file version: $fileVersion" }
+          if ($assemblyVersion -ne '1.0.37.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
+          if ($fileVersion -ne '1.0.37.0') { throw "Unexpected DLL file version: $fileVersion" }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $appIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.36.0') {
-            throw 'Application manifest is not version 1.0.36.0.'
+          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.37.0') {
+            throw 'Application manifest is not version 1.0.37.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.36.0') {
-            throw 'Deployment manifest is not version 1.0.36.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.37.0') {
+            throw 'Deployment manifest is not version 1.0.37.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.36"')) {
-            throw 'MSI project version is not 1.0.36.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.37"')) {
+            throw 'MSI project version is not 1.0.37.'
           }
 
       - name: Finalize and validate installer
@@ -158,13 +175,13 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.36-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.36-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.37-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.37-Setup.msi' -Force
           }
 
-      - name: Upload НеЗнайка 1.0.36
+      - name: Upload НеЗнайка 1.0.37
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.36
+          name: NeZnaika-1.0.37
           path: artifact
           if-no-files-found: error

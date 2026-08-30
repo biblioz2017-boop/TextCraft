@@ -45,6 +45,12 @@ namespace TextForge
             this.ExpandButton.SuperTip = "Сделать выделенный текст длиннее за счёт раскрытия уже содержащихся мыслей, без добавления новых фактов.";
             this.KeywordsButton.Label = "Ключевые слова";
             this.KeywordsButton.SuperTip = "Выделить ключевые термины и словосочетания. Исходный текст сохраняется, список добавляется после него.";
+            this.SynonymsButton.Label = "Синонимы";
+            this.SynonymsButton.SuperTip = "Подобрать контекстные синонимы для выделенного слова или короткой фразы с помощью выбранной LLM.";
+            this.ExplainSelectionButton.Label = "Объяснить";
+            this.ExplainSelectionButton.SuperTip = "Объяснить выделенный фрагмент на основе его содержания без добавления внешних фактов.";
+            this.ConclusionsSelectionButton.Label = "Выводы";
+            this.ConclusionsSelectionButton.SuperTip = "Сформулировать выводы только по выделенному фрагменту и вставить их после него.";
             this.GrammarButton.Label = "Грамматика";
             this.GrammarButton.SuperTip = "Исправить орфографию, грамматику, пунктуацию и опечатки без стилистического переписывания.";
             this.ScientificStyleButton.Label = "Научный стиль";
@@ -85,6 +91,9 @@ namespace TextForge
             this.ShortenButton = this.Factory.CreateRibbonButton();
             this.ExpandButton = this.Factory.CreateRibbonButton();
             this.KeywordsButton = this.Factory.CreateRibbonButton();
+            this.SynonymsButton = this.Factory.CreateRibbonButton();
+            this.ExplainSelectionButton = this.Factory.CreateRibbonButton();
+            this.ConclusionsSelectionButton = this.Factory.CreateRibbonButton();
             this.GrammarButton = this.Factory.CreateRibbonButton();
             this.ScientificStyleButton = this.Factory.CreateRibbonButton();
             this.ContinueButton = this.Factory.CreateRibbonButton();
@@ -132,6 +141,9 @@ namespace TextForge
             this.ToolsGroup.Items.Add(this.ShortenButton);
             this.ToolsGroup.Items.Add(this.ExpandButton);
             this.ToolsGroup.Items.Add(this.KeywordsButton);
+            this.ToolsGroup.Items.Add(this.SynonymsButton);
+            this.ToolsGroup.Items.Add(this.ExplainSelectionButton);
+            this.ToolsGroup.Items.Add(this.ConclusionsSelectionButton);
             this.ToolsGroup.Items.Add(this.GrammarButton);
             this.ToolsGroup.Items.Add(this.ScientificStyleButton);
             this.ToolsGroup.Items.Add(this.ContinueButton);
@@ -174,6 +186,27 @@ namespace TextForge
             this.KeywordsButton.Name = "KeywordsButton";
             this.KeywordsButton.ShowImage = true;
             this.KeywordsButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.KeywordsButton_Click);
+
+            this.SynonymsButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.SynonymsButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
+            this.SynonymsButton.Label = "Синонимы";
+            this.SynonymsButton.Name = "SynonymsButton";
+            this.SynonymsButton.ShowImage = true;
+            this.SynonymsButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.SynonymsButton_Click);
+
+            this.ExplainSelectionButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.ExplainSelectionButton.Image = global::TextForge.Properties.Resources.information_high_contrast;
+            this.ExplainSelectionButton.Label = "Объяснить";
+            this.ExplainSelectionButton.Name = "ExplainSelectionButton";
+            this.ExplainSelectionButton.ShowImage = true;
+            this.ExplainSelectionButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ExplainSelectionButton_Click);
+
+            this.ConclusionsSelectionButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
+            this.ConclusionsSelectionButton.Image = global::TextForge.Properties.Resources.memo_high_contrast;
+            this.ConclusionsSelectionButton.Label = "Выводы";
+            this.ConclusionsSelectionButton.Name = "ConclusionsSelectionButton";
+            this.ConclusionsSelectionButton.ShowImage = true;
+            this.ConclusionsSelectionButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.ConclusionsSelectionButton_Click);
 
             this.GrammarButton.ControlSize = Microsoft.Office.Core.RibbonControlSize.RibbonControlSizeLarge;
             this.GrammarButton.Image = global::TextForge.Properties.Resources.face_with_monocle_high_contrast;
@@ -318,6 +351,9 @@ namespace TextForge
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ShortenButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ExpandButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton KeywordsButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton SynonymsButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton ExplainSelectionButton;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton ConclusionsSelectionButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton GrammarButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ScientificStyleButton;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton ContinueButton;
