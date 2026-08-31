@@ -49,14 +49,18 @@ try {
 
     Write-Host '[3/4] Installing add-in...'
     $msi = Get-ChildItem -Path $root -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $msi) {
-        throw 'NeZnaika MSI package was not found.'
-    }
-
-    $arguments = @('/i', ('"' + $msi.FullName + '"'), '/passive', '/norestart')
-    $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $arguments -Wait -PassThru
-    if ($process.ExitCode -notin @(0, 3010)) {
-        throw ('MSI installation failed with exit code ' + $process.ExitCode + '.')
+    if ($msi) {
+        $arguments = @('/i', ('"' + $msi.FullName + '"'), '/passive', '/norestart')
+        $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $arguments -Wait -PassThru
+        if ($process.ExitCode -notin @(0, 3010)) {
+            throw ('MSI installation failed with exit code ' + $process.ExitCode + '.')
+        }
+    } else {
+        $vsto = Join-Path $root 'TextCraft.vsto'
+        if (-not (Test-Path -LiteralPath $vsto)) {
+            throw 'TextCraft.vsto was not found in the installation package.'
+        }
+        Start-Process -FilePath $vsto -Wait
     }
 
     Write-Host '[4/4] Done.'
@@ -109,4 +113,4 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Final installer failed Windows PowerShell 5.1 parser validation.'
 }
 
-Write-Host 'Final installer is ASCII-only, MSI-only, and parses successfully in Windows PowerShell 5.1.'
+Write-Host 'Final installer is ASCII-only and parses successfully in Windows PowerShell 5.1.'
