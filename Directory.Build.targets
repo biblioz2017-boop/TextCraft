@@ -58,7 +58,14 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\switch-beautify-to-selection.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-rag-ui.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-citation-policy-v2.ps1&quot;" />
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.40.ps1&quot;" />
     <WriteLinesToFile File="$(NeZnaikaPatchMarker)" Lines="1.0.40" Overwrite="true" Encoding="UTF-8" />
+  </Target>
+
+  <Target Name="ApplyNeZnaikaReleaseVersion"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="ApplyNeZnaikaBranding"
+          Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <Message Text="Reasserting NeZnaika 1.0.40 release version after branding..." Importance="high" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.40.ps1&quot;" />
   </Target>
 </Project>
