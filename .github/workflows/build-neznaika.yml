@@ -62,22 +62,22 @@ jobs:
         shell: pwsh
         run: ./ci/apply-v12-fast-rag.ps1
 
-      - name: Build НеЗнайка 1.0.37
+      - name: Build НеЗнайка 1.0.38
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеЗнайка 1.0.37
+      - name: Verify НеЗнайка 1.0.38
         shell: pwsh
         run: |
           $targets = Get-Content 'Directory.Build.targets' -Raw
           foreach ($marker in @(
-            '<ApplicationVersion>1.0.37.0</ApplicationVersion>',
+            '<ApplicationVersion>1.0.38.0</ApplicationVersion>',
             'Forge.Synonyms.cs',
             'Forge.SelectionInsights.cs',
             'GenerateUserControl.BeautifyRag.cs',
             'apply-beautify-rag-ui.ps1',
             'apply-beautify-citation-policy-v2.ps1',
-            'set-neznaika-version-1.0.37.ps1'
+            'set-neznaika-version-1.0.38.ps1'
           )) {
             if (-not $targets.Contains($marker)) { throw "Missing build marker: $marker" }
           }
@@ -126,24 +126,24 @@ jobs:
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.37.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
-          if ($fileVersion -ne '1.0.37.0') { throw "Unexpected DLL file version: $fileVersion" }
+          if ($assemblyVersion -ne '1.0.38.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
+          if ($fileVersion -ne '1.0.38.0') { throw "Unexpected DLL file version: $fileVersion" }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $appIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.37.0') {
-            throw 'Application manifest is not version 1.0.37.0.'
+          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.38.0') {
+            throw 'Application manifest is not version 1.0.38.0.'
           }
 
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.37.0') {
-            throw 'Deployment manifest is not version 1.0.37.0.'
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.38.0') {
+            throw 'Deployment manifest is not version 1.0.38.0.'
           }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.37"')) {
-            throw 'MSI project version is not 1.0.37.'
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.38"')) {
+            throw 'MSI project version is not 1.0.38.'
           }
 
       - name: Finalize and validate installer
@@ -175,13 +175,38 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.37-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.37-Setup.msi' -Force
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.38-Setup.msi') {
+            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.38-Setup.msi' -Force
           }
 
-      - name: Upload НеЗнайка 1.0.37
+      - name: Create clean archive layout
+        shell: pwsh
+        run: ./ci/package-neznaika-friendly.ps1
+
+      - name: Verify clean archive layout
+        shell: pwsh
+        run: |
+          $root = @(Get-ChildItem 'artifact' -Force)
+          if ($root.Count -ne 2) { throw "Artifact root must contain exactly 2 items; found $($root.Count)." }
+          if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd' -PathType Leaf)) { throw 'Root installer is missing.' }
+          if (-not (Test-Path 'artifact\resources' -PathType Container)) { throw 'resources folder is missing.' }
+          foreach ($required in @(
+            'artifact\resources\Install-NeZnaika.ps1',
+            'artifact\resources\NeZnaika-CI.cer',
+            'artifact\resources\NeZnaika-1.0.38-Setup.msi',
+            'artifact\resources\TextCraft.vsto',
+            'artifact\resources\TextCraft.dll'
+          )) {
+            if (-not (Test-Path $required)) { throw "Missing packaged resource: $required" }
+          }
+          $launcher = Get-Content 'artifact\00_INSTALL-NeZnaika.cmd' -Raw
+          if (-not $launcher.Contains('resources\Install-NeZnaika.ps1')) {
+            throw 'Root launcher does not point to resources\Install-NeZnaika.ps1.'
+          }
+
+      - name: Upload НеЗнайка 1.0.38
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.37
+          name: NeZnaika-1.0.38
           path: artifact
           if-no-files-found: error
