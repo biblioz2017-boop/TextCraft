@@ -19,7 +19,6 @@ if (Test-Path -LiteralPath $resources) {
 }
 New-Item -ItemType Directory -Path $resources | Out-Null
 
-# Keep only the obvious launcher in the archive root. Everything else is a resource.
 $rootLauncher = '00_INSTALL-NeZnaika.cmd'
 Get-ChildItem -LiteralPath $artifact -Force | Where-Object {
     $_.Name -ne $rootLauncher -and $_.Name -ne 'resources'
@@ -30,7 +29,7 @@ Get-ChildItem -LiteralPath $artifact -Force | Where-Object {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.41 Installer
+title NeZnaika 1.0.42 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0resources\Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
@@ -38,14 +37,10 @@ if errorlevel 1 (
   pause
 )
 '@
-[System.IO.File]::WriteAllText(
-    (Join-Path $artifact $rootLauncher),
-    $launcher,
-    [System.Text.Encoding]::ASCII
-)
+[System.IO.File]::WriteAllText((Join-Path $artifact $rootLauncher), $launcher, [System.Text.Encoding]::ASCII)
 
 $readme = @'
-NeZnaika 1.0.41
+NeZnaika 1.0.42
 ================
 
 INSTALLATION
@@ -57,28 +52,15 @@ This package intentionally uses the classic VSTO installation path.
 The resources folder contains TextCraft.vsto, certificate, DLLs, language resources and runtime files.
 Do not move or run individual files from this folder unless troubleshooting.
 '@
-[System.IO.File]::WriteAllText(
-    (Join-Path $resources 'README-FIRST-NeZnaika.txt'),
-    $readme,
-    [System.Text.Encoding]::ASCII
-)
+[System.IO.File]::WriteAllText((Join-Path $resources 'README-FIRST-NeZnaika.txt'), $readme, [System.Text.Encoding]::ASCII)
 
 $rootItems = @(Get-ChildItem -LiteralPath $artifact -Force)
 if ($rootItems.Count -ne 2) {
     throw ('Friendly package root must contain exactly 2 items; found ' + $rootItems.Count + '.')
 }
-if (-not (Test-Path -LiteralPath (Join-Path $artifact $rootLauncher))) {
-    throw 'Root installer launcher is missing.'
-}
-if (-not (Test-Path -LiteralPath $resources -PathType Container)) {
-    throw 'resources directory is missing.'
-}
-foreach ($required in @(
-    'Install-NeZnaika.ps1',
-    'NeZnaika-CI.cer',
-    'TextCraft.vsto',
-    'TextCraft.dll'
-)) {
+if (-not (Test-Path -LiteralPath (Join-Path $artifact $rootLauncher))) { throw 'Root installer launcher is missing.' }
+if (-not (Test-Path -LiteralPath $resources -PathType Container)) { throw 'resources directory is missing.' }
+foreach ($required in @('Install-NeZnaika.ps1','NeZnaika-CI.cer','TextCraft.vsto','TextCraft.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $resources $required))) {
         throw ('Required packaged resource is missing: ' + $required)
     }
