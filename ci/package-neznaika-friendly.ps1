@@ -22,7 +22,7 @@ Get-ChildItem -LiteralPath $artifact -Force | Where-Object {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.38 Installer
+title NeZnaika 1.0.39 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0resources\Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
@@ -37,7 +37,7 @@ if errorlevel 1 (
 )
 
 $readme = @'
-NeZnaika 1.0.38
+NeZnaika 1.0.39
 ================
 
 INSTALLATION
@@ -69,7 +69,7 @@ foreach ($required in @(
     'NeZnaika-CI.cer',
     'TextCraft.vsto',
     'TextCraft.dll',
-    'NeZnaika-1.0.38-Setup.msi'
+    'NeZnaika-1.0.39-Setup.msi'
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $resources $required))) {
         throw ('Required packaged resource is missing: ' + $required)
