@@ -3,8 +3,9 @@
     <ProductName>НеZнайка</ProductName>
     <FriendlyName>НеZнайка</FriendlyName>
     <PublisherName>НеZнайка</PublisherName>
-    <ApplicationVersion>1.0.38.0</ApplicationVersion>
+    <ApplicationVersion>1.0.39.0</ApplicationVersion>
     <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
+    <NeZnaikaPatchMarker>$(MSBuildProjectDirectory)\.neznaika-patches-applied</NeZnaikaPatchMarker>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'TextCraft'">
@@ -29,7 +30,10 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-neznaika-branding-safe.ps1&quot;" />
   </Target>
 
-  <Target Name="ApplyTextCraftRagAndDefaultModelPatch" BeforeTargets="BeforeCompile" Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+  <Target Name="ApplyTextCraftRagAndDefaultModelPatch"
+          BeforeTargets="BeforeCompile"
+          Condition="'$(MSBuildProjectName)' == 'TextCraft' and !Exists('$(NeZnaikaPatchMarker)')">
+    <Message Text="Applying NeZnaika build-time patches once for this checkout..." Importance="high" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-chat-and-default-model.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;$p='$(MSBuildProjectDirectory)\ci\apply-long-response-control.ps1'; $s=[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8); Invoke-Expression $s&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-continue-response.ps1&quot;" />
@@ -54,6 +58,7 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\switch-beautify-to-selection.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-rag-ui.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-citation-policy-v2.ps1&quot;" />
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.38.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.39.ps1&quot;" />
+    <WriteLinesToFile File="$(NeZnaikaPatchMarker)" Lines="1.0.39" Overwrite="true" Encoding="UTF-8" />
   </Target>
 </Project>
