@@ -30,7 +30,7 @@ Get-ChildItem -LiteralPath $artifact -Force | Where-Object {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.40 Installer
+title NeZnaika 1.0.41 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0resources\Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
@@ -45,7 +45,7 @@ if errorlevel 1 (
 )
 
 $readme = @'
-NeZnaika 1.0.40
+NeZnaika 1.0.41
 ================
 
 INSTALLATION
