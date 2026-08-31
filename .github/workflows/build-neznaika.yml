@@ -112,10 +112,11 @@ jobs:
           }
 
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $msi) {
-            throw 'MSI was not produced by the Visual Studio Installer project.'
+          if ($msi) {
+            Write-Host "Technical MSI output was produced: $($msi.Name) ($($msi.Length) bytes)"
+          } else {
+            Write-Host 'MSI was not produced; classic VSTO user package remains supported.'
           }
-          Write-Host "Verified MSI output: $($msi.Name) ($($msi.Length) bytes)"
 
           $synonyms = Get-Content 'Forge.Synonyms.cs' -Raw
           foreach ($marker in @('SynonymsButton_Click','GetContextualSynonymsAsync','ReplaceSelectionWithSynonym','TrackRevisions')) {
@@ -145,8 +146,9 @@ jobs:
           foreach ($forbidden in @('LOCALAPPDATA', 'current.txt', 'Copy-PayloadToStableFolder', 'VSTOInstaller.exe')) {
             if ($installer.Contains($forbidden)) { throw "New installer behavior still present: $forbidden" }
           }
-          if (-not $installer.Contains('msiexec.exe')) { throw 'Classic MSI installer path is missing.' }
-          if ($installer.Contains('Start-Process -FilePath $vsto')) { throw 'Raw VSTO fallback is still enabled.' }
+          if (-not $installer.Contains('Start-Process -FilePath $vsto')) {
+            throw 'Classic direct VSTO fallback is missing.'
+          }
 
       - name: Finalize НеЗнайка installer package
         shell: pwsh
@@ -158,10 +160,7 @@ jobs:
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
 
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $msi) {
-            throw 'MSI was not produced. The package will not fall back to raw VSTO for this release.'
-          }
-          if ($msi.Name -ne 'NeZnaika-1.0.40-Setup.msi') {
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.40-Setup.msi') {
             Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.40-Setup.msi' -Force
           }
 
@@ -179,11 +178,13 @@ jobs:
           foreach ($required in @(
             'artifact\resources\Install-NeZnaika.ps1',
             'artifact\resources\NeZnaika-CI.cer',
-            'artifact\resources\NeZnaika-1.0.40-Setup.msi',
             'artifact\resources\TextCraft.vsto',
             'artifact\resources\TextCraft.dll'
           )) {
             if (-not (Test-Path $required)) { throw "Missing packaged resource: $required" }
+          }
+          if (Get-ChildItem 'artifact\resources' -File -Filter '*.msi' -ErrorAction SilentlyContinue) {
+            throw 'MSI must not be present in the classic user package.'
           }
           $launcher = Get-Content 'artifact\00_INSTALL-NeZnaika.cmd' -Raw
           if (-not $launcher.Contains('resources\Install-NeZnaika.ps1')) {
