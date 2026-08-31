@@ -37,11 +37,7 @@ jobs:
 
           $project = 'TextCraft.csproj'
           $xml = Get-Content $project -Raw
-          $xml = [regex]::Replace(
-            $xml,
-            '<ManifestCertificateThumbprint>[^<]*</ManifestCertificateThumbprint>',
-            "<ManifestCertificateThumbprint>$($cert.Thumbprint)</ManifestCertificateThumbprint>"
-          )
+          $xml = [regex]::Replace($xml, '<ManifestCertificateThumbprint>[^<]*</ManifestCertificateThumbprint>', "<ManifestCertificateThumbprint>$($cert.Thumbprint)</ManifestCertificateThumbprint>")
           Set-Content $project $xml -Encoding UTF8
 
       - name: Validate owl resource
@@ -50,9 +46,7 @@ jobs:
           $path = 'Assets\NeZnaikaOwl.jpg'
           if (-not (Test-Path $path)) { throw 'Owl JPEG is missing.' }
           $bytes = [System.IO.File]::ReadAllBytes($path)
-          if ($bytes.Length -lt 4 -or $bytes[0] -ne 0xFF -or $bytes[1] -ne 0xD8 -or $bytes[$bytes.Length - 2] -ne 0xFF -or $bytes[$bytes.Length - 1] -ne 0xD9) {
-            throw 'Owl file is not a valid JPEG stream.'
-          }
+          if ($bytes.Length -lt 4 -or $bytes[0] -ne 0xFF -or $bytes[1] -ne 0xD8 -or $bytes[$bytes.Length - 2] -ne 0xFF -or $bytes[$bytes.Length - 1] -ne 0xD9) { throw 'Owl file is not a valid JPEG stream.' }
 
       - name: Validate embedded help payload
         shell: pwsh
@@ -68,18 +62,14 @@ jobs:
           $gzip = New-Object System.IO.Compression.GZipStream($input, [System.IO.Compression.CompressionMode]::Decompress)
           $reader = New-Object System.IO.StreamReader($gzip, [System.Text.Encoding]::UTF8)
           $manual = $reader.ReadToEnd()
-          $reader.Dispose()
-          $gzip.Dispose()
-          $input.Dispose()
-          foreach ($marker in @(
-            'НеZнайка',
-            '1.0.41',
-            'Синонимы на основе LLM',
-            'Дополнить из RAG',
-            'Научный аудит главы'
-          )) {
+          $reader.Dispose(); $gzip.Dispose(); $input.Dispose()
+          foreach ($marker in @('НеZнайка','1.0.41','Синонимы на основе LLM','Дополнить из RAG','Научный аудит главы')) {
             if (-not $manual.Contains($marker)) { throw "Missing embedded manual marker: $marker" }
           }
+          $helpCode = Get-Content 'Forge.Help.cs' -Raw
+          if (-not $helpCode.Contains('Replace("1.0.41", "1.0.42")')) { throw 'Runtime manual version adaptation for 1.0.42 is missing.' }
+          $helpPatch = Get-Content 'ci\apply-help-ui.ps1' -Raw
+          if ($helpPatch.Contains('DefaultCheckBox.Visible')) { throw 'Help patch still depends on the fragile DefaultCheckBox localization marker.' }
           Write-Host "Embedded help payload decoded successfully: $($manual.Length) characters."
 
       - name: Apply Fast RAG fix
@@ -90,88 +80,50 @@ jobs:
         shell: pwsh
         run: ./ci/prepare-vdproj-commandline.ps1
 
-      - name: Build НеЗнайка 1.0.41
+      - name: Build НеЗнайка 1.0.42
         shell: pwsh
         run: ./ci/build-patched.ps1
 
-      - name: Verify НеЗнайка 1.0.41
+      - name: Verify НеЗнайка 1.0.42
         shell: pwsh
         run: |
-          if (-not (Test-Path '.neznaika-patches-applied')) {
-            throw 'Single-pass build patch marker was not created.'
-          }
-
+          if (-not (Test-Path '.neznaika-patches-applied')) { throw 'Single-pass build patch marker was not created.' }
           $targets = Get-Content 'Directory.Build.targets' -Raw
-          foreach ($marker in @(
-            '<ApplicationVersion>1.0.41.0</ApplicationVersion>',
-            'NeZnaikaPatchMarker',
-            'set-neznaika-version-1.0.41.ps1',
-            'Forge.Synonyms.cs',
-            'Forge.SelectionInsights.cs',
-            'Forge.Help.cs',
-            'apply-help-ui.ps1',
-            'NeZnaikaManualRU.GzipPart01',
-            'GenerateUserControl.BeautifyRag.cs'
-          )) {
+          foreach ($marker in @('<ApplicationVersion>1.0.42.0</ApplicationVersion>','NeZnaikaPatchMarker','set-neznaika-version-1.0.42.ps1','Forge.Synonyms.cs','Forge.SelectionInsights.cs','Forge.Help.cs','apply-help-ui.ps1','NeZnaikaManualRU.GzipPart01','GenerateUserControl.BeautifyRag.cs')) {
             if (-not $targets.Contains($marker)) { throw "Missing build marker: $marker" }
           }
-
           $markerValue = (Get-Content '.neznaika-patches-applied' -Raw).Trim()
-          if ($markerValue -ne '1.0.41') { throw "Unexpected patch marker value: $markerValue" }
+          if ($markerValue -ne '1.0.42') { throw "Unexpected patch marker value: $markerValue" }
 
           $help = Get-Content 'Forge.Help.cs' -Raw
-          foreach ($marker in @('HelpButton_Click','ReadEmbeddedHelpText','CreateEmbeddedHelpForm','GzipPart04')) {
+          foreach ($marker in @('HelpButton_Click','ReadEmbeddedHelpText','CreateEmbeddedHelpForm','GzipPart04','руководство 1.0.42')) {
             if (-not $help.Contains($marker)) { throw "Missing embedded help feature marker: $marker" }
           }
-
           $ribbon = Get-Content 'Forge.Designer.cs' -Raw
-          foreach ($marker in @(
-            'this.HelpButton = this.Factory.CreateRibbonButton();',
-            'this.InfoGroup.Items.Add(this.HelpButton);',
-            'this.HelpButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.HelpButton_Click);'
-          )) {
+          foreach ($marker in @('this.HelpButton = this.Factory.CreateRibbonButton();','this.InfoGroup.Items.Add(this.HelpButton);','this.HelpButton.SuperTip =','this.HelpButton.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.HelpButton_Click);')) {
             if (-not $ribbon.Contains($marker)) { throw "Missing patched Help ribbon marker: $marker" }
           }
 
           $dllPath = (Resolve-Path 'artifact\TextCraft.dll').Path
           $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($dllPath).Version.ToString()
           $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dllPath).FileVersion
-          if ($assemblyVersion -ne '1.0.41.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
-          if ($fileVersion -ne '1.0.41.0') { throw "Unexpected DLL file version: $fileVersion" }
+          if ($assemblyVersion -ne '1.0.42.0') { throw "Unexpected DLL assembly version: $assemblyVersion" }
+          if ($fileVersion -ne '1.0.42.0') { throw "Unexpected DLL file version: $fileVersion" }
 
           [xml]$appManifest = Get-Content 'artifact\TextCraft.dll.manifest' -Raw
           $appIdentity = $appManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.dll']")
-          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.41.0') {
-            throw 'Application manifest is not version 1.0.41.0.'
-          }
-
+          if ($null -eq $appIdentity -or $appIdentity.version -ne '1.0.42.0') { throw 'Application manifest is not version 1.0.42.0.' }
           [xml]$deploymentManifest = Get-Content 'artifact\TextCraft.vsto' -Raw
           $deploymentIdentity = $deploymentManifest.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='TextCraft.vsto']")
-          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.41.0') {
-            throw 'Deployment manifest is not version 1.0.41.0.'
-          }
+          if ($null -eq $deploymentIdentity -or $deploymentIdentity.version -ne '1.0.42.0') { throw 'Deployment manifest is not version 1.0.42.0.' }
 
           $setup = Get-Content 'OfficeAddInSetup\OfficeAddInSetup.vdproj' -Raw
-          if (-not $setup.Contains('"ProductVersion" = "8:1.0.41"')) {
-            throw 'MSI project version is not 1.0.41.'
-          }
-
-          $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi) {
-            Write-Host "Technical MSI output was produced: $($msi.Name) ($($msi.Length) bytes)"
-          } else {
-            Write-Host 'MSI was not produced; classic VSTO user package remains supported.'
-          }
+          if (-not $setup.Contains('"ProductVersion" = "8:1.0.42"')) { throw 'MSI project version is not 1.0.42.' }
 
           $synonyms = Get-Content 'Forge.Synonyms.cs' -Raw
-          foreach ($marker in @('SynonymsButton_Click','GetContextualSynonymsAsync','ReplaceSelectionWithSynonym','TrackRevisions')) {
-            if (-not $synonyms.Contains($marker)) { throw "Missing synonym feature marker: $marker" }
-          }
-
+          foreach ($marker in @('SynonymsButton_Click','GetContextualSynonymsAsync','ReplaceSelectionWithSynonym','TrackRevisions')) { if (-not $synonyms.Contains($marker)) { throw "Missing synonym feature marker: $marker" } }
           $insights = Get-Content 'Forge.SelectionInsights.cs' -Raw
-          foreach ($marker in @('ExplainSelectionButton_Click','ConclusionsSelectionButton_Click','InsertSelectionInsightAsync')) {
-            if (-not $insights.Contains($marker)) { throw "Missing selection insight marker: $marker" }
-          }
+          foreach ($marker in @('ExplainSelectionButton_Click','ConclusionsSelectionButton_Click','InsertSelectionInsightAsync')) { if (-not $insights.Contains($marker)) { throw "Missing selection insight marker: $marker" } }
 
       - name: Finalize and validate installer
         shell: pwsh
@@ -180,23 +132,11 @@ jobs:
       - name: Verify classic installer
         shell: pwsh
         run: |
-          foreach ($file in @(
-            'artifact\00_INSTALL-NeZnaika.cmd',
-            'artifact\INSTALL-NeZnaika.cmd',
-            'artifact\Install-NeZnaika.ps1'
-          )) {
-            if (-not (Test-Path $file)) { throw "Missing classic installer file: $file" }
-          }
+          foreach ($file in @('artifact\00_INSTALL-NeZnaika.cmd','artifact\INSTALL-NeZnaika.cmd','artifact\Install-NeZnaika.ps1')) { if (-not (Test-Path $file)) { throw "Missing classic installer file: $file" } }
           $installer = Get-Content 'artifact\Install-NeZnaika.ps1' -Raw
-          foreach ($forbidden in @('LOCALAPPDATA', 'current.txt', 'Copy-PayloadToStableFolder', 'VSTOInstaller.exe')) {
-            if ($installer.Contains($forbidden)) { throw "New installer behavior still present: $forbidden" }
-          }
-          if (-not $installer.Contains('Start-Process -FilePath $vsto')) {
-            throw 'Classic direct VSTO fallback is missing.'
-          }
-          if (-not $installer.Contains('NeZnaika 1.0.41')) {
-            throw 'Installer does not identify itself as NeZnaika 1.0.41.'
-          }
+          foreach ($forbidden in @('LOCALAPPDATA','current.txt','Copy-PayloadToStableFolder','VSTOInstaller.exe')) { if ($installer.Contains($forbidden)) { throw "New installer behavior still present: $forbidden" } }
+          if (-not $installer.Contains('Start-Process -FilePath $vsto')) { throw 'Classic direct VSTO fallback is missing.' }
+          if (-not $installer.Contains('NeZnaika 1.0.42')) { throw 'Installer does not identify itself as NeZnaika 1.0.42.' }
 
       - name: Finalize НеЗнайка installer package
         shell: pwsh
@@ -206,11 +146,8 @@ jobs:
           Remove-Item 'artifact\Install-TextCraft.ps1' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\Install-TextCraft.cmd' -Force -ErrorAction SilentlyContinue
           Remove-Item 'artifact\INSTALL.txt' -Force -ErrorAction SilentlyContinue
-
           $msi = Get-ChildItem 'artifact' -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.41-Setup.msi') {
-            Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.41-Setup.msi' -Force
-          }
+          if ($msi -and $msi.Name -ne 'NeZnaika-1.0.42-Setup.msi') { Rename-Item -LiteralPath $msi.FullName -NewName 'NeZnaika-1.0.42-Setup.msi' -Force }
 
       - name: Create clean archive layout
         shell: pwsh
@@ -223,32 +160,17 @@ jobs:
           if ($root.Count -ne 2) { throw "Artifact root must contain exactly 2 items; found $($root.Count)." }
           if (-not (Test-Path 'artifact\00_INSTALL-NeZnaika.cmd' -PathType Leaf)) { throw 'Root installer is missing.' }
           if (-not (Test-Path 'artifact\resources' -PathType Container)) { throw 'resources folder is missing.' }
-          foreach ($required in @(
-            'artifact\resources\Install-NeZnaika.ps1',
-            'artifact\resources\NeZnaika-CI.cer',
-            'artifact\resources\TextCraft.vsto',
-            'artifact\resources\TextCraft.dll'
-          )) {
-            if (-not (Test-Path $required)) { throw "Missing packaged resource: $required" }
-          }
-          if (Get-ChildItem 'artifact\resources' -File -Filter '*.msi' -ErrorAction SilentlyContinue) {
-            throw 'MSI must not be present in the classic user package.'
-          }
+          foreach ($required in @('artifact\resources\Install-NeZnaika.ps1','artifact\resources\NeZnaika-CI.cer','artifact\resources\TextCraft.vsto','artifact\resources\TextCraft.dll')) { if (-not (Test-Path $required)) { throw "Missing packaged resource: $required" } }
+          if (Get-ChildItem 'artifact\resources' -File -Filter '*.msi' -ErrorAction SilentlyContinue) { throw 'MSI must not be present in the classic user package.' }
           $launcher = Get-Content 'artifact\00_INSTALL-NeZnaika.cmd' -Raw
-          if (-not $launcher.Contains('resources\Install-NeZnaika.ps1')) {
-            throw 'Root launcher does not point to resources\Install-NeZnaika.ps1.'
-          }
-          if (-not $launcher.Contains('NeZnaika 1.0.41 Installer')) {
-            throw 'Root launcher is not labeled NeZnaika 1.0.41.'
-          }
+          if (-not $launcher.Contains('resources\Install-NeZnaika.ps1')) { throw 'Root launcher does not point to resources\Install-NeZnaika.ps1.' }
+          if (-not $launcher.Contains('NeZnaika 1.0.42 Installer')) { throw 'Root launcher is not labeled NeZnaika 1.0.42.' }
           $readme = Get-Content 'artifact\resources\README-FIRST-NeZnaika.txt' -Raw
-          if (-not $readme.Contains('NeZnaika 1.0.41')) {
-            throw 'Packaged README is not version 1.0.41.'
-          }
+          if (-not $readme.Contains('NeZnaika 1.0.42')) { throw 'Packaged README is not version 1.0.42.' }
 
-      - name: Upload НеЗнайка 1.0.41
+      - name: Upload НеЗнайка 1.0.42
         uses: actions/upload-artifact@v4
         with:
-          name: NeZnaika-1.0.41
+          name: NeZnaika-1.0.42
           path: artifact
           if-no-files-found: error

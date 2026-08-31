@@ -34,7 +34,7 @@ namespace TextForge
                     return;
                 }
 
-                string manualText = ReadEmbeddedHelpText();
+                string manualText = ReadEmbeddedHelpText().Replace("1.0.41", "1.0.42");
                 _helpForm = CreateEmbeddedHelpForm(manualText);
                 _helpForm.FormClosed += (s, args) => _helpForm = null;
                 _helpForm.Show();
@@ -77,7 +77,7 @@ namespace TextForge
         {
             Form form = new Form
             {
-                Text = "НеZнайка — руководство 1.0.41",
+                Text = "НеZнайка — руководство 1.0.42",
                 StartPosition = FormStartPosition.CenterScreen,
                 Width = 920,
                 Height = 760,
@@ -148,7 +148,7 @@ namespace TextForge
 
             Label status = new Label
             {
-                Text = "Встроенное руководство НеZнайка 1.0.41",
+                Text = "Встроенное руководство НеZнайка 1.0.42",
                 Dock = DockStyle.Fill,
                 AutoSize = true,
                 Padding = new Padding(0, 6, 0, 0)
@@ -194,7 +194,7 @@ namespace TextForge
                 textBox.Select(0, 0);
                 textBox.ScrollToCaret();
                 textBox.Focus();
-                status.Text = "Встроенное руководство НеZнайка 1.0.41";
+                status.Text = "Встроенное руководство НеZнайка 1.0.42";
             };
             form.KeyDown += (s, e) =>
             {
