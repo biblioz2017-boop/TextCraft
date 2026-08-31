@@ -3,7 +3,7 @@
     <ProductName>НеZнайка</ProductName>
     <FriendlyName>НеZнайка</FriendlyName>
     <PublisherName>НеZнайка</PublisherName>
-    <ApplicationVersion>1.0.39.0</ApplicationVersion>
+    <ApplicationVersion>1.0.40.0</ApplicationVersion>
     <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
     <NeZnaikaPatchMarker>$(MSBuildProjectDirectory)\.neznaika-patches-applied</NeZnaikaPatchMarker>
   </PropertyGroup>
@@ -58,7 +58,7 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\switch-beautify-to-selection.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-rag-ui.ps1&quot;" />
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-citation-policy-v2.ps1&quot;" />
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.39.ps1&quot;" />
-    <WriteLinesToFile File="$(NeZnaikaPatchMarker)" Lines="1.0.39" Overwrite="true" Encoding="UTF-8" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.40.ps1&quot;" />
+    <WriteLinesToFile File="$(NeZnaikaPatchMarker)" Lines="1.0.40" Overwrite="true" Encoding="UTF-8" />
   </Target>
 </Project>
