@@ -28,7 +28,7 @@ function Wait-ForWordToClose {
 
 try {
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.39 - Microsoft Word add-in setup' -ForegroundColor Cyan
+    Write-Host 'NeZnaika 1.0.40 - Microsoft Word add-in setup' -ForegroundColor Cyan
     Write-Host '================================================'
 
     Wait-ForWordToClose
@@ -49,23 +49,19 @@ try {
 
     Write-Host '[3/4] Installing add-in...'
     $msi = Get-ChildItem -Path $root -File -Filter '*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($msi) {
-        $arguments = @('/i', ('"' + $msi.FullName + '"'), '/passive', '/norestart')
-        $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $arguments -Wait -PassThru
-        if ($process.ExitCode -notin @(0, 3010)) {
-            throw ('MSI installation failed with exit code ' + $process.ExitCode + '.')
-        }
-    } else {
-        $vsto = Join-Path $root 'TextCraft.vsto'
-        if (-not (Test-Path -LiteralPath $vsto)) {
-            throw 'TextCraft.vsto was not found in the installation package.'
-        }
-        Start-Process -FilePath $vsto -Wait
+    if (-not $msi) {
+        throw 'NeZnaika MSI package was not found.'
+    }
+
+    $arguments = @('/i', ('"' + $msi.FullName + '"'), '/passive', '/norestart')
+    $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $arguments -Wait -PassThru
+    if ($process.ExitCode -notin @(0, 3010)) {
+        throw ('MSI installation failed with exit code ' + $process.ExitCode + '.')
     }
 
     Write-Host '[4/4] Done.'
     Write-Host ''
-    Write-Host 'NeZnaika 1.0.39 was installed successfully.' -ForegroundColor Green
+    Write-Host 'NeZnaika 1.0.40 was installed successfully.' -ForegroundColor Green
     Write-Host 'Open Microsoft Word and use the NeZnaika tab.'
     [void](Read-Host 'Press Enter to close this window')
     exit 0
@@ -81,7 +77,7 @@ catch {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
-title NeZnaika 1.0.39 Installer
+title NeZnaika 1.0.40 Installer
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-NeZnaika.ps1"
 if errorlevel 1 (
   echo.
@@ -113,4 +109,4 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Final installer failed Windows PowerShell 5.1 parser validation.'
 }
 
-Write-Host 'Final installer is ASCII-only and parses successfully in Windows PowerShell 5.1.'
+Write-Host 'Final installer is ASCII-only, MSI-only, and parses successfully in Windows PowerShell 5.1.'
