@@ -1,0 +1,73 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <ProductName>НеZнайка</ProductName>
+    <FriendlyName>НеZнайка</FriendlyName>
+    <PublisherName>НеZнайка</PublisherName>
+    <ApplicationVersion>1.0.42.0</ApplicationVersion>
+    <OfficeApplicationDescription>НеZнайка — локальная AI-надстройка для Microsoft Word</OfficeApplicationDescription>
+    <NeZnaikaPatchMarker>$(MSBuildProjectDirectory)\.neznaika-patches-applied</NeZnaikaPatchMarker>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <Reference Include="System.IO.Compression" />
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\NeZnaikaOwl.jpg">
+      <LogicalName>TextForge.NeZnaikaOwl.jpg</LogicalName>
+      <Type>Non-Resx</Type>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\Help\NeZnaika-Manual-RU.gz.part01.b64"><LogicalName>TextForge.NeZnaikaManualRU.GzipPart01</LogicalName><Type>Non-Resx</Type><WithCulture>false</WithCulture></EmbeddedResource>
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\Help\NeZnaika-Manual-RU.gz.part02.b64"><LogicalName>TextForge.NeZnaikaManualRU.GzipPart02</LogicalName><Type>Non-Resx</Type><WithCulture>false</WithCulture></EmbeddedResource>
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\Help\NeZnaika-Manual-RU.gz.part03.b64"><LogicalName>TextForge.NeZnaikaManualRU.GzipPart03</LogicalName><Type>Non-Resx</Type><WithCulture>false</WithCulture></EmbeddedResource>
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\Assets\Help\NeZnaika-Manual-RU.gz.part04.b64"><LogicalName>TextForge.NeZnaikaManualRU.GzipPart04</LogicalName><Type>Non-Resx</Type><WithCulture>false</WithCulture></EmbeddedResource>
+    <Compile Include="$(MSBuildProjectDirectory)\Forge.ModelControl.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\Forge.LogicalLink.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\Forge.Synonyms.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\Forge.SelectionInsights.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\Forge.Help.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditFix.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.AuditPanel.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.Beautify.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.BeautifySelection.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\GenerateUserControl.BeautifyRag.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)\RAGControl.Overview.cs" />
+  </ItemGroup>
+
+  <Target Name="ApplyNeZnaikaBranding" BeforeTargets="CoreResGen" Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-neznaika-branding-safe.ps1&quot;" />
+  </Target>
+
+  <Target Name="ApplyTextCraftRagAndDefaultModelPatch" BeforeTargets="BeforeCompile" Condition="'$(MSBuildProjectName)' == 'TextCraft' and !Exists('$(NeZnaikaPatchMarker)')">
+    <Message Text="Applying NeZnaika build-time patches once for this checkout..." Importance="high" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-chat-and-default-model.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;$p='$(MSBuildProjectDirectory)\ci\apply-long-response-control.ps1'; $s=[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8); Invoke-Expression $s&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-continue-response.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-model-controls.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-logical-link.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-help-ui.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-audit-fix.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\repair-audit-stage2-hotfix-script.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-audit-stage2-hotfix.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-audit-crash-safe.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-audit-apply-stability.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\repair-audit-apply-catches.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-audit-postapply-handle-guard.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-audit-headless-review.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\repair-audit-headless-logger.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-chat-scroll-fix.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\repair-rag-cache-v2.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\repair-rag-auto-topic-idempotence.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-auto-topic.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\repair-rag-auto-topic-linq.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-rag-overview-routing.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-ui.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\switch-beautify-to-selection.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-rag-ui.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\apply-beautify-citation-policy-v2.ps1&quot;" />
+    <WriteLinesToFile File="$(NeZnaikaPatchMarker)" Lines="1.0.42" Overwrite="true" Encoding="UTF-8" />
+  </Target>
+
+  <Target Name="ApplyNeZnaikaReleaseVersion" BeforeTargets="CoreCompile" DependsOnTargets="ApplyNeZnaikaBranding" Condition="'$(MSBuildProjectName)' == 'TextCraft'">
+    <Message Text="Reasserting NeZnaika 1.0.42 release version after branding..." Importance="high" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\ci\set-neznaika-version-1.0.42.ps1&quot;" />
+  </Target>
+</Project>

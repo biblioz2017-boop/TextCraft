@@ -1,0 +1,1 @@
+Retry CI after configuring Visual Studio Installer Projects for MSI.
